@@ -9,7 +9,7 @@ from pymongo import MongoClient
 from app.config import Config
 from app.services.embedding_service import get_embedding
 from app.services.llm_provider import generate_questions_for_chunk
-from app.services.transcript_service import chunk_transcript, fetch_transcript
+from app.services.transcript_service import chunk_transcript, fetch_transcript, infer_topic_tag
 from app.services.recommendation_service import compute_recommendations
 
 
@@ -19,7 +19,8 @@ def _parse_db_name(mongo_uri: str) -> str:
         return "algopath"
     try:
         # mongodb://localhost:27017/algopath -> algopath
-        return (mongo_uri.rsplit("/", 1)[-1] or "algopath").split("?")[0]
+        name = (mongo_uri.rsplit("/", 1)[-1] or "").split("?")[0].strip()
+        return name or "algopath"
     except Exception:
         return "algopath"
 
@@ -62,8 +63,26 @@ def process_video_task(video_id: str) -> None:
         # Mark in-progress state (optional; helpful for UI).
         videos.update_one({"video_id": video_id}, {"$set": {"processing_error": None}}, upsert=False)
 
+        # Try fetching and chunking the real transcript.
         transcript_items = fetch_transcript(video_id)
-        chunks = chunk_transcript(transcript_items)
+        chunks = chunk_transcript(transcript_items) if transcript_items else []
+
+        # Fallback: if transcript is missing/unavailable, still generate questions
+        # so the UI works for demos.
+        if not chunks:
+            video_doc = videos.find_one({"video_id": video_id}) or {}
+            title = video_doc.get("title", "") or video_id
+            topic_tag = infer_topic_tag(title)
+            fallback_text = f"Lecture excerpt about {topic_tag}. Video title: {title}"
+            chunks = [
+                {
+                    "text": fallback_text,
+                    "start_time": 0.0,
+                    "end_time": 90.0,
+                    "topic_tag": topic_tag,
+                    "chunk_index": 0,
+                }
+            ]
 
         all_transcript_chunks = []
         all_questions = []
@@ -114,14 +133,21 @@ def process_video_task(video_id: str) -> None:
                 # We'll keep going; worst case the chunk just contributes no questions/chunk entry.
                 continue
 
+        # Clear old questions/transcripts for this video before inserting (idempotent retries).
+        questions.delete_many({"video_id": video_id})
+        transcripts.delete_many({"video_id": video_id})
+
+        # If no questions were generated, mark as failed.
+        if not all_questions:
+            raise RuntimeError("No questions were generated for this video (all_questions empty).")
+
         # Persist transcripts and questions.
         transcripts.update_one(
             {"video_id": video_id},
             {"$set": {"chunks": all_transcript_chunks}},
             upsert=True,
         )
-        if all_questions:
-            questions.insert_many(all_questions)
+        questions.insert_many(all_questions)
 
         # Update video topics + processed.
         topic_tags = sorted({c["topic_tag"] for c in all_transcript_chunks if c.get("topic_tag")})
@@ -134,7 +160,13 @@ def process_video_task(video_id: str) -> None:
         err = traceback.format_exc()
         videos.update_one(
             {"video_id": video_id},
-            {"$set": {"processed": False, "processing_error": err}},
+            {
+                "$set": {
+                    "processed": False,
+                    # Keep it concise for UI debugging.
+                    "processing_error": str(err.splitlines()[-1])[:350],
+                }
+            },
         )
 
 

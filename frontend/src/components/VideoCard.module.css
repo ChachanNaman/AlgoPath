@@ -123,6 +123,13 @@
   animation: pulse 1.2s infinite;
 }
 
+.failedBadge {
+  border-color: rgba(255, 107, 107, 0.45);
+  background: rgba(255, 107, 107, 0.12);
+  color: var(--accent-warn);
+  animation: none;
+}
+
 @keyframes pulse {
   0% {
     opacity: 0.6;

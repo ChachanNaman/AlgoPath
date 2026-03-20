@@ -14,7 +14,7 @@ function EmptyState({ onIngest }) {
       </svg>
       <div className={styles.emptyText}>No videos loaded yet. Ingest the playlist to start learning.</div>
       <button className={styles.primaryBtn} type="button" onClick={onIngest}>
-        Ingest Playlist →
+        Load Playlist →
       </button>
     </div>
   );
@@ -27,22 +27,36 @@ export default function PlaylistPage() {
   const [ingesting, setIngesting] = useState(false);
   const [error, setError] = useState("");
 
-  const loadVideos = async () => {
-    setLoading(true);
-    setError("");
+  const loadVideos = async ({ silent = false } = {}) => {
+    if (!silent) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const res = await api.get("/api/playlist/videos");
       setVideos(res.data || []);
     } catch (e) {
-      setError(e?.response?.data?.message || "Failed to load playlist.");
+      if (!silent) setError(e?.response?.data?.message || "Failed to load playlist.");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     loadVideos();
   }, []);
+
+  useEffect(() => {
+    // Poll while processing so user doesn't have to refresh manually.
+    if (!videos?.length) return;
+    const hasUnprocessed = videos.some((v) => !v.processed);
+    if (!hasUnprocessed) return;
+
+    const id = setInterval(() => {
+      loadVideos({ silent: true });
+    }, 5000);
+    return () => clearInterval(id);
+  }, [videos]);
 
   const onIngest = async () => {
     setIngesting(true);
@@ -111,10 +125,12 @@ export default function PlaylistPage() {
         <h2 className={styles.title}>
           DAA Playlist <span className={styles.titleBadge}>{videoCount} videos</span>
         </h2>
-        {!videos.length ? null : !videos.some((v) => v.processed) ? (
-          <button className={styles.primaryBtn} type="button" onClick={onIngest} disabled={ingesting}>
-            {ingesting ? "Ingesting..." : "Ingest Playlist"}
-          </button>
+        {videos?.length ? (
+          videos.some((v) => !v.processed) ? (
+            <button className={styles.primaryBtn} type="button" onClick={onIngest} disabled={ingesting}>
+              {ingesting ? "Processing..." : "Load / Retry"}
+            </button>
+          ) : null
         ) : null}
       </div>
 

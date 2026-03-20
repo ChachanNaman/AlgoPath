@@ -23,7 +23,8 @@ import numpy as np
 from app import create_app
 
 
-DEFAULT_PLAYLIST_ID = "PLdo5W4Nhv31bbKJzrsKfMpo_grxuLl8LU"
+# Abdul Bari DAA playlist (from your provided link).
+DEFAULT_PLAYLIST_ID = "PLDN4rrl48XKpZkf03iYFl-O29szjTrs_O"
 
 test_users = [
     {"name": "Arjun Sharma", "email": "arjun@test.com", "password": "test123"},

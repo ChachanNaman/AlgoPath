@@ -12,7 +12,8 @@ from app.tasks.celery_tasks import process_video_task
 playlist_bp = Blueprint("playlist_bp", __name__)
 
 
-DEFAULT_PLAYLIST_ID = "PLdo5W4Nhv31bbKJzrsKfMpo_grxuLl8LU"
+# Abdul Bari DAA playlist (from your provided link).
+DEFAULT_PLAYLIST_ID = "PLDN4rrl48XKpZkf03iYFl-O29szjTrs_O"
 
 
 @playlist_bp.post("/ingest")
@@ -21,7 +22,10 @@ def ingest_playlist():
     payload = request.get_json(silent=True) or {}
     playlist_id = payload.get("playlist_id") or DEFAULT_PLAYLIST_ID
 
-    videos = fetch_playlist_videos(playlist_id)
+    try:
+        videos = fetch_playlist_videos(playlist_id)
+    except Exception as e:
+        return jsonify({"message": f"Ingest failed: {str(e)}"}), 500
 
     videos_collection = current_app.config["MONGO_DB"]["videos"]
 
@@ -29,6 +33,13 @@ def ingest_playlist():
     for v in videos:
         existing = videos_collection.find_one({"video_id": v["video_id"]})
         if existing:
+            # Retry processing for videos that are not processed yet.
+            if not existing.get("processed", False):
+                videos_collection.update_one(
+                    {"video_id": v["video_id"]},
+                    {"$set": {"processing_error": None}},
+                )
+                process_video_task.delay(v["video_id"])
             continue
         videos_collection.insert_one(
             {
@@ -64,7 +75,11 @@ def ingest_playlist():
 @jwt_required()
 def list_videos():
     videos_collection = current_app.config["MONGO_DB"]["videos"]
-    docs = list(videos_collection.find({}).sort("title", 1))
+    # Only show videos from the default Abdul Bari playlist on the UI.
+    # This prevents older/irrelevant videos (e.g., other instructors) from showing up.
+    docs = list(
+        videos_collection.find({"playlist_id": DEFAULT_PLAYLIST_ID}).sort("title", 1)
+    )
     resp = []
     for d in docs:
         resp.append(
@@ -74,6 +89,7 @@ def list_videos():
                 "thumbnail_url": d.get("thumbnail_url", ""),
                 "processed": bool(d.get("processed", False)),
                 "topics": d.get("topics", []) or [],
+                "processing_error": d.get("processing_error"),
             }
         )
     return jsonify(resp), 200

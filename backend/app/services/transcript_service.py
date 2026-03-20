@@ -49,6 +49,11 @@ def _pick_topic_tag(text: str) -> str:
     return "General"
 
 
+def infer_topic_tag(text: str) -> str:
+    """Public helper for other modules (e.g., Celery ingestion fallback)."""
+    return _pick_topic_tag(text)
+
+
 def fetch_playlist_videos(playlist_id: str) -> list[dict]:
     """
     Use YouTube Data API v3 to fetch up to 50 videos per page from the playlist.

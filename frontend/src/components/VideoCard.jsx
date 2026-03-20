@@ -15,17 +15,20 @@ export default function VideoCard({
     processed = false,
     topics: videoTopics = [],
     video_id,
+    processing_error,
   } = video || {};
 
   const visibleTopics = (videoTopics || topics || []).slice(0, 3);
   const extra = (videoTopics || topics || []).length - visibleTopics.length;
+  const clickable = Boolean(processed);
 
   return (
     <div
       className={[styles.card, variant === "compact" ? styles.cardCompact : ""].filter(Boolean).join(" ")}
-      onClick={onClick}
-      role="button"
-      tabIndex={0}
+      onClick={clickable ? onClick : undefined}
+      role={clickable ? "button" : "group"}
+      tabIndex={clickable ? 0 : -1}
+      style={{ cursor: clickable ? "pointer" : "default" }}
     >
       <div className={styles.thumbWrap}>
         <img className={styles.thumb} src={thumbnailUrl} alt={title || "video"} />
@@ -56,7 +59,12 @@ export default function VideoCard({
               Start Quiz
             </button>
           ) : (
-            <div className={styles.processingBadge}>Processing...</div>
+            <div
+              className={[styles.processingBadge, processing_error ? styles.failedBadge : ""].filter(Boolean).join(" ")}
+              title={processing_error ? String(processing_error).slice(0, 200) : undefined}
+            >
+              {processing_error ? `Failed: ${String(processing_error).slice(0, 28)}…` : "Processing..."}
+            </div>
           )}
         </div>
       </div>

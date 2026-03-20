@@ -80,7 +80,9 @@ export default function AITutorPage() {
             ))}
           </div>
         ) : (
-          <div className={styles.noContext}>No context yet — ask a question!</div>
+          <div className={styles.noContext}>
+            No context yet. Submit at least one quiz answer to power the Tutor.
+          </div>
         )}
       </div>
 
