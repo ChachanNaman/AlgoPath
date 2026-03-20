@@ -1,0 +1,204 @@
+from __future__ import annotations
+
+import re
+from datetime import datetime
+from typing import Any
+
+from bson import ObjectId
+from flask import Blueprint, current_app, jsonify, request
+from flask_jwt_extended import get_jwt_identity, jwt_required
+
+from app import limiter
+from app.services.evaluation_service import evaluate_student_answer_hybrid
+from app.services.llm_provider import translate_content
+from app.tasks.celery_tasks import update_recommendations_task
+
+
+quiz_bp = Blueprint("quiz_bp", __name__)
+
+
+def _strip_html_tags(value: str) -> str:
+    return re.sub(r"<[^>]*?>", "", value or "")
+
+
+def _sanitize_user_input(value: str, max_len: int = 2000) -> str:
+    return _strip_html_tags((value or "").strip()[:max_len])
+
+
+@quiz_bp.get("/questions/<video_id>")
+@jwt_required()
+def get_questions(video_id: str):
+    difficulty = request.args.get("difficulty")
+    count = int(request.args.get("count", 5))
+    count = max(1, min(count, 20))
+
+    questions = current_app.config["MONGO_DB"]["questions"]
+
+    query: dict[str, Any] = {"video_id": video_id}
+    if difficulty in ("easy", "medium", "hard"):
+        query["difficulty"] = difficulty
+
+    docs = list(questions.find(query))
+    if not docs:
+        return jsonify([]), 200
+
+    import random
+
+    random.shuffle(docs)
+    docs = docs[:count]
+
+    resp = []
+    for d in docs:
+        d = dict(d)
+        d["_id"] = str(d.get("_id"))
+        resp.append(
+            {
+                "question_id": d["_id"],
+                "question_text": d.get("question_text", ""),
+                "correct_answer": d.get("correct_answer", ""),
+                "explanation": d.get("explanation", ""),
+                "difficulty": d.get("difficulty", "easy"),
+                "topic_tag": d.get("topic_tag", ""),
+                "timestamp_start": float(d.get("timestamp_start", 0.0)),
+                "video_id": d.get("video_id", video_id),
+            }
+        )
+    # Spec says array of question objects without embedding field; we comply by omitting `embedding`.
+    return jsonify(resp), 200
+
+
+@quiz_bp.post("/submit")
+@jwt_required()
+@limiter.limit("30/minute", key_func=lambda: get_jwt_identity() or request.remote_addr)
+def submit_answer():
+    payload = request.get_json(silent=True) or {}
+    question_id = payload.get("question_id")
+    student_answer_raw = payload.get("student_answer", "")
+    language = payload.get("language", "en") or "en"
+
+    if not question_id or not isinstance(question_id, str):
+        return jsonify({"message": "question_id is required"}), 400
+    student_answer = _sanitize_user_input(student_answer_raw)
+
+    db = current_app.config["MONGO_DB"]
+    questions = db["questions"]
+    quiz_attempts = db["quiz_attempts"]
+
+    try:
+        q_oid = ObjectId(question_id)
+    except Exception:
+        return jsonify({"message": "invalid question_id"}), 400
+
+    question = questions.find_one({"_id": q_oid})
+    if not question:
+        return jsonify({"message": "question not found"}), 404
+
+    llm_question_text = _sanitize_user_input(question.get("question_text", ""), max_len=2000)
+    correct_answer = _sanitize_user_input(question.get("correct_answer", ""), max_len=2000)
+    topic_tag = question.get("topic_tag", "")
+    timestamp_start = float(question.get("timestamp_start", 0.0))
+    video_id = question.get("video_id", "")
+    question_embedding = question.get("embedding")
+
+    if not isinstance(question_embedding, list):
+        return jsonify({"message": "question embedding missing; please try again."}), 500
+
+    # Hybrid scoring (LLM + semantic similarity).
+    evaluation = evaluate_student_answer_hybrid(
+        question=llm_question_text,
+        correct_answer=correct_answer,
+        student_answer=student_answer,
+        topic_tag=topic_tag,
+        question_embedding=question_embedding,
+        language=language,
+    )
+
+    llm_score = int(evaluation["llm_score"])
+    semantic_score = float(evaluation["semantic_score"])
+    final_score = int(evaluation["final_score"])
+    feedback = evaluation["feedback"]
+
+    identity = get_jwt_identity()
+    weak_concept = evaluation.get("weak_concept") or topic_tag
+
+    quiz_attempts.insert_one(
+        {
+            "user_id": identity,
+            "question_id": question_id,
+            "video_id": video_id,
+            "student_answer": student_answer,
+            "llm_score": llm_score,
+            "semantic_score": semantic_score,
+            "final_score": final_score,
+            "feedback": feedback,
+            "weak_concept": weak_concept,
+            "topic_tag": topic_tag,
+            "timestamp_start": timestamp_start,
+            "attempted_at": datetime.utcnow(),
+        }
+    )
+
+    # Async recommendations update.
+    try:
+        update_recommendations_task.delay(str(identity))
+    except Exception:
+        # If celery isn't running, don't fail the quiz submit.
+        pass
+
+    return (
+        jsonify(
+            {
+                "final_score": final_score,
+                "feedback": feedback,
+                "weak_concept": weak_concept,
+                "correct_answer": correct_answer,
+                "explanation": question.get("explanation", ""),
+                "recommended_timestamp": timestamp_start,
+                "video_id": video_id,
+            }
+        ),
+        200,
+    )
+
+
+@quiz_bp.post("/translate")
+@jwt_required()
+def translate_question():
+    payload = request.get_json(silent=True) or {}
+    question_id = payload.get("question_id")
+    target_language = payload.get("target_language", "en") or "en"
+
+    if not question_id:
+        return jsonify({"message": "question_id is required"}), 400
+
+    db = current_app.config["MONGO_DB"]
+    questions = db["questions"]
+    try:
+        q_oid = ObjectId(question_id)
+    except Exception:
+        return jsonify({"message": "invalid question_id"}), 400
+
+    question = questions.find_one({"_id": q_oid})
+    if not question:
+        return jsonify({"message": "question not found"}), 404
+
+    question_text = _sanitize_user_input(question.get("question_text", ""), max_len=2000)
+    correct_answer = _sanitize_user_input(question.get("correct_answer", ""), max_len=2000)
+
+    translated_q = translate_content(question_text, target_language)
+    translated_a = translate_content(correct_answer, target_language)
+
+    return jsonify({"translated_question": translated_q.get("translated", translated_q), "translated_answer": translated_a.get("translated", translated_a)}), 200
+
+
+# Test:
+# 1) Get questions:
+# curl http://localhost:5000/api/quiz/questions/VIDEO_ID?count=5&difficulty=easy \
+#   -H "Authorization: Bearer TOKEN_HERE"
+#
+# 2) Submit:
+# curl -X POST http://localhost:5000/api/quiz/submit \
+#   -H "Content-Type: application/json" \
+#   -H "Authorization: Bearer TOKEN_HERE" \
+#   -d '{"question_id":"QUESTION_OID","student_answer":"...","language":"en"}'
+

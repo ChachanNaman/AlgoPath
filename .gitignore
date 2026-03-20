@@ -1,0 +1,25 @@
+.DS_Store
+node_modules
+dist
+build
+.vscode
+.cursor
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# Env files (never commit secrets)
+**/.env
+
+# Celery / Redis local artifacts
+*.pid
+celerybeat-schedule*
+
+# Logs
+*.log
+
