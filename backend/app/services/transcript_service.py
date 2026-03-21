@@ -17,6 +17,7 @@ KNOWN_TOPICS = [
     "Trees",
     "Hashing",
     "Backtracking",
+    "Asymptotic Analysis",
 ]
 
 DEFAULT_LANGUAGE_CANDIDATES = ["en", "en-US", "en-GB"]
@@ -25,16 +26,56 @@ DEFAULT_LANGUAGE_CANDIDATES = ["en", "en-US", "en-GB"]
 def _pick_topic_tag(text: str) -> str:
     text_lower = (text or "").lower()
 
-    # Priority matches first; helps keep "Divide & Conquer" distinct.
+    # Priority matches first; asymptotic lectures before broad "graph"/"sort" hits.
     topic_aliases = {
-        "Divide & Conquer": ["divide and conquer", "divide&conquer"],
-        "Dynamic Programming": ["dynamic programming", "dp"],
-        "Greedy": ["greedy"],
-        "Sorting": ["sort", "sorting", "merge sort", "quick sort"],
-        "Graphs": ["graph", "graphs"],
-        "Trees": ["tree", "trees"],
-        "Hashing": ["hash", "hashing"],
-        "Backtracking": ["backtracking", "backtrack"],
+        "Asymptotic Analysis": [
+            "asymptotic",
+            "big o",
+            "big-o",
+            "little o",
+            "theta",
+            "omega",
+            "notation",
+            "complexity analysis",
+            "rate of growth",
+            "order of growth",
+        ],
+        "Divide & Conquer": ["divide and conquer", "divide&conquer", "master theorem", "recurrence relation"],
+        "Dynamic Programming": ["dynamic programming", "dp ", "memoization", "tabulation"],
+        "Greedy": ["greedy", "activity selection", "huffman", "fractional knapsack"],
+        "Sorting": ["sort", "sorting", "merge sort", "quick sort", "heap sort", "radix sort"],
+        "Graphs": [
+            "graph",
+            "graphs",
+            "bfs",
+            "dfs",
+            "dijkstra",
+            "bellman",
+            "floyd",
+            "shortest path",
+            "minimum spanning",
+            "mst",
+            "kruskal",
+            "prim's",
+            "prims algorithm",
+            "topological",
+            "traveling salesman",
+            "travelling salesman",
+            "tsp",
+            "hamiltonian",
+        ],
+        "Trees": ["tree", "trees", "binary tree", "bst", "avl", "red-black", "heapify", "priority queue"],
+        "Hashing": ["hash", "hashing", "hash table", "collision"],
+        "Backtracking": [
+            "backtracking",
+            "backtrack",
+            "branch and bound",
+            "branch-and-bound",
+            "state space tree",
+            "subset sum",
+            "n-queens",
+            "graph coloring",
+        ],
     }
 
     for canonical, aliases in topic_aliases.items():
@@ -117,7 +158,11 @@ def fetch_transcript(video_id: str) -> list[dict]:
             video_id, languages=DEFAULT_LANGUAGE_CANDIDATES
         )
     except Exception:
-        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+        try:
+            transcript = YouTubeTranscriptApi.get_transcript(video_id)
+        except Exception:
+            # Ingestion should not hard-fail on transcript provider/parser issues.
+            return []
 
     items: list[dict[str, Any]] = []
     for item in transcript:

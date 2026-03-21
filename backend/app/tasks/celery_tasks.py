@@ -64,7 +64,12 @@ def process_video_task(video_id: str) -> None:
         videos.update_one({"video_id": video_id}, {"$set": {"processing_error": None}}, upsert=False)
 
         # Try fetching and chunking the real transcript.
-        transcript_items = fetch_transcript(video_id)
+        # Some videos intermittently fail transcript parsing (e.g. XML parser errors).
+        # We degrade gracefully to fallback chunks instead of failing the whole video.
+        try:
+            transcript_items = fetch_transcript(video_id)
+        except Exception:
+            transcript_items = []
         chunks = chunk_transcript(transcript_items) if transcript_items else []
 
         # Fallback: if transcript is missing/unavailable, still generate questions
@@ -77,8 +82,9 @@ def process_video_task(video_id: str) -> None:
             chunks = [
                 {
                     "text": fallback_text,
-                    "start_time": 0.0,
-                    "end_time": 90.0,
+                    # Non-zero so timeline / “jump to concept” aren’t stuck at 0:00 when transcript is missing.
+                    "start_time": 45.0,
+                    "end_time": 135.0,
                     "topic_tag": topic_tag,
                     "chunk_index": 0,
                 }

@@ -11,7 +11,12 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from app import limiter
 from app.services.evaluation_service import evaluate_student_answer_hybrid
 from app.services.llm_provider import translate_content
+from app.services.recommendation_service import compute_recommendations
+from app.services.transcript_service import infer_topic_tag
 from app.tasks.celery_tasks import update_recommendations_task
+
+# Match recommendations when transcript has no per-chunk timestamps.
+_FALLBACK_TIMESTAMP_SECONDS = 48.0
 
 
 quiz_bp = Blueprint("quiz_bp", __name__)
@@ -83,6 +88,7 @@ def submit_answer():
     db = current_app.config["MONGO_DB"]
     questions = db["questions"]
     quiz_attempts = db["quiz_attempts"]
+    videos = db["videos"]
 
     try:
         q_oid = ObjectId(question_id)
@@ -95,10 +101,18 @@ def submit_answer():
 
     llm_question_text = _sanitize_user_input(question.get("question_text", ""), max_len=2000)
     correct_answer = _sanitize_user_input(question.get("correct_answer", ""), max_len=2000)
-    topic_tag = question.get("topic_tag", "")
+    topic_tag = (question.get("topic_tag") or "").strip() or "Unknown"
     timestamp_start = float(question.get("timestamp_start", 0.0))
     video_id = question.get("video_id", "")
     question_embedding = question.get("embedding")
+
+    video_doc = videos.find_one({"video_id": video_id}) or {}
+    title = (video_doc.get("title") or "").strip()
+    inferred = infer_topic_tag(title) if title else "General"
+    if topic_tag in ("General", "Unknown", ""):
+        topic_tag = inferred if inferred not in ("General",) else (topic_tag or "General")
+    if timestamp_start <= 0:
+        timestamp_start = _FALLBACK_TIMESTAMP_SECONDS
 
     if not isinstance(question_embedding, list):
         return jsonify({"message": "question embedding missing; please try again."}), 500
@@ -138,12 +152,14 @@ def submit_answer():
         }
     )
 
-    # Async recommendations update.
+    # Async recommendations update (or sync if Celery broker is down).
     try:
         update_recommendations_task.delay(str(identity))
     except Exception:
-        # If celery isn't running, don't fail the quiz submit.
-        pass
+        try:
+            compute_recommendations(str(identity), db)
+        except Exception:
+            pass
 
     return (
         jsonify(

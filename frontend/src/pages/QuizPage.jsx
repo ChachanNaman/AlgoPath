@@ -47,8 +47,10 @@ export default function QuizPage() {
   const [showOriginal, setShowOriginal] = useState(false);
 
   const [results, setResults] = useState([]); // per-question result list
+  const [showPlayerFallback, setShowPlayerFallback] = useState(false);
 
   const current = questions[index] || null;
+  const totalQuestions = Math.max(1, questions.length);
 
   useEffect(() => {
     let mounted = true;
@@ -99,6 +101,15 @@ export default function QuizPage() {
     };
   }, [language, current?.question_id]);
 
+  useEffect(() => {
+    // Fallback to plain iframe if YouTube IFrame API player never becomes ready.
+    setShowPlayerFallback(false);
+    const timer = window.setTimeout(() => {
+      if (!isReady) setShowPlayerFallback(true);
+    }, 5000);
+    return () => window.clearTimeout(timer);
+  }, [video_id, isReady]);
+
   const questionTextToRender = useMemo(() => {
     if (!current) return "";
     if (language === "en" || !translated?.translated_question) return current.question_text;
@@ -135,10 +146,10 @@ export default function QuizPage() {
     setAnswer("");
     setTranslated(null);
     setShowOriginal(false);
-    setIndex((i) => Math.min(i + 1, 4));
+    setIndex((i) => Math.min(i + 1, totalQuestions - 1));
   };
 
-  const isComplete = results.filter(Boolean).length >= 5;
+  const isComplete = results.filter(Boolean).length >= totalQuestions;
 
   const overallScore = useMemo(() => {
     if (!results.length) return 0;
@@ -214,14 +225,25 @@ export default function QuizPage() {
     <div className={styles.wrap}>
       <div className={styles.playerWrap}>
         <div className={styles.playerOuter}>
-          <div id="yt-player" className={styles.playerInner} />
+          {showPlayerFallback ? (
+            <iframe
+              className={styles.playerInner}
+              src={`https://www.youtube.com/embed/${video_id}?rel=0&modestbranding=1`}
+              title="Lecture video"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              referrerPolicy="strict-origin-when-cross-origin"
+              allowFullScreen
+            />
+          ) : (
+            <div id="yt-player" className={styles.playerInner} />
+          )}
         </div>
       </div>
 
       <div className={styles.quizPanel}>
         <div className={styles.panelTop}>
           <div className={styles.qHeader}>
-            Question {index + 1} of 5
+            Question {Math.min(index + 1, totalQuestions)} of {totalQuestions}
             <div className={styles.badgesRow}>
               <TopicBadge topic={current.difficulty} variant="primary" />
               <TopicBadge topic={current.topic_tag} variant="primary" />
@@ -242,7 +264,7 @@ export default function QuizPage() {
           </div>
         </div>
 
-        <div className={styles.questionText}>{questionTextToRender}</div>
+        <div className={styles.questionText}>{current ? questionTextToRender : "All loaded questions are completed."}</div>
 
         {language !== "en" && translated?.translated_question ? (
           <div className={styles.originalToggle}>
@@ -278,22 +300,42 @@ export default function QuizPage() {
         {alreadyAnswered ? (
           <div className={styles.resultBlock}>
             <ScoreCircle score={score} />
-            <div className={styles.feedbackText}>{results[index].feedback}</div>
-            <div className={styles.explainText}>
-              Correct answer: <span className={styles.correct}>{results[index].correct_answer}</span>
-              <div className={styles.explainSub}>{results[index].explanation}</div>
+            <div className={styles.feedbackCol}>
+              <div className={styles.feedbackLabel}>Feedback</div>
+              <div className={styles.feedbackText}>{results[index].feedback}</div>
             </div>
-            <div className={styles.resultActions}>
-              <button
-                className={styles.secondaryBtn}
-                type="button"
-                onClick={() => {
-                  if (typeof seekTo === "function") seekTo(results[index].recommended_timestamp || 0);
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                }}
-              >
-                Jump to concept in video
-              </button>
+            <div className={styles.answerSection}>
+              <div className={styles.answerCard}>
+                <div className={styles.answerCardLabel}>Model answer</div>
+                <p className={styles.answerCardBody}>{results[index].correct_answer}</p>
+              </div>
+              {results[index].explanation ? (
+                <div className={styles.explanationCard}>
+                  <div className={styles.answerCardLabel}>Explanation</div>
+                  <p className={styles.explanationBody}>{results[index].explanation}</p>
+                </div>
+              ) : null}
+              <div className={styles.resultActions}>
+                <button
+                  className={styles.secondaryBtn}
+                  type="button"
+                  onClick={() => {
+                    const ts = Number(results[index].recommended_timestamp || 0);
+                    if (typeof seekTo === "function" && isReady) {
+                      seekTo(ts);
+                    } else if (video_id) {
+                      window.open(
+                        `https://www.youtube.com/watch?v=${video_id}&t=${Math.floor(ts)}`,
+                        "_blank",
+                        "noopener,noreferrer"
+                      );
+                    }
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                >
+                  Jump to concept in video
+                </button>
+              </div>
             </div>
           </div>
         ) : null}

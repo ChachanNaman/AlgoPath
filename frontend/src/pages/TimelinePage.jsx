@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState } from "react";
+import React, { useCallback, useContext, useEffect, useState } from "react";
 import api from "../services/api.js";
 import { AuthContext } from "../context/AuthContext.jsx";
 import styles from "./TimelinePage.module.css";
@@ -14,31 +14,37 @@ export default function TimelinePage() {
   const [recs, setRecs] = useState([]);
   const [videos, setVideos] = useState([]);
 
-  useEffect(() => {
-    let mounted = true;
-    async function load() {
+  const load = useCallback(async ({ silent = false } = {}) => {
+    if (!userId) return;
+    if (!silent) {
       setLoading(true);
       setError("");
-      try {
-        const [recRes, vidsRes] = await Promise.all([
-          api.get(`/api/recommendations/${encodeURIComponent(userId)}`),
-          api.get(`/api/playlist/videos`),
-        ]);
-        if (!mounted) return;
-        setRecs(recRes.data || []);
-        setVideos(vidsRes.data || []);
-      } catch (e) {
-        if (!mounted) return;
-        setError(e?.response?.data?.message || "Failed to load timeline.");
-      } finally {
-        if (mounted) setLoading(false);
-      }
     }
-    if (userId) load();
-    return () => {
-      mounted = false;
-    };
+    try {
+      const [recRes, vidsRes] = await Promise.all([
+        api.get(`/api/recommendations/${encodeURIComponent(userId)}`),
+        api.get(`/api/playlist/videos`),
+      ]);
+      setRecs(recRes.data || []);
+      setVideos(vidsRes.data || []);
+    } catch (e) {
+      if (!silent) setError(e?.response?.data?.message || "Failed to load timeline.");
+    } finally {
+      if (!silent) setLoading(false);
+    }
   }, [userId]);
+
+  useEffect(() => {
+    load({ silent: false });
+  }, [load]);
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible" && userId) load({ silent: true });
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [userId, load]);
 
   if (loading) {
     return (
@@ -77,7 +83,7 @@ export default function TimelinePage() {
             const v = videos.find((x) => x.video_id === r.recommended_video_id);
             return (
               <TimestampRedirectCard
-                key={r.recommended_video_id + r.recommended_timestamp}
+                key={`${r.topic}-${r.recommended_video_id}-${r.recommended_timestamp}`}
                 thumbnailUrl={v?.thumbnail_url || ""}
                 videoTitle={r.video_title}
                 weakTopic={r.topic}

@@ -10,6 +10,35 @@
   margin-bottom: 16px;
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.secondaryBtn {
+  background: transparent;
+  color: var(--accent-secondary);
+  border: 1px solid var(--border-accent);
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.secondaryBtn:hover:not(:disabled) {
+  background: rgba(0, 217, 181, 0.08);
+}
+
+.secondaryBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .title {
   font-family: var(--font-heading);
   font-size: 1.7rem;

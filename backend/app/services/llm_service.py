@@ -47,8 +47,13 @@ def generate_questions_for_chunk(chunk_text: str, topic_tag: str, timestamp_star
         "Return only valid JSON."
     )
     user_prompt = (
-        f"Given this lecture transcript chunk on the topic '{topic_tag}': {chunk_text}\n\n"
+        f"Given this lecture transcript chunk on the topic '{topic_tag}':\n{chunk_text}\n\n"
         "Generate exactly 3 questions — one easy, one medium, one hard. "
+        "Each question MUST test understanding of THIS chunk only: reference concrete terms, definitions, "
+        "steps, or examples that appear in the text (do not ask generic questions that could apply to any DAA video). "
+        "Each correct_answer must be specific enough that a student who only watched this segment could justify it. "
+        "Set each question's topic_tag to the best DAA label for that question (may refine the chunk tag). "
+        f"Use timestamp_start = {timestamp_start} for every question. "
         'Return JSON: {"questions": [{"question":"...","correct_answer":"...","explanation":"...","difficulty":"easy","topic_tag":"...","timestamp_start": '
         f"{timestamp_start}" + "}]}"
     )

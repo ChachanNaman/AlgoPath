@@ -72,6 +72,27 @@ export default function PlaylistPage() {
     }
   };
 
+  /** Re-run Celery for every video so quiz questions match the latest generator (e.g. after a code fix). */
+  const onRegenerateQuizzes = async () => {
+    if (
+      !window.confirm(
+        "Regenerate quiz questions for ALL playlist videos? This re-runs processing in the background and may take several minutes."
+      )
+    ) {
+      return;
+    }
+    setIngesting(true);
+    setError("");
+    try {
+      await api.post("/api/playlist/ingest", { reprocess_all: true });
+      await loadVideos();
+    } catch (e) {
+      setError(e?.response?.data?.message || "Regenerate failed.");
+    } finally {
+      setIngesting(false);
+    }
+  };
+
   const videoCount = videos?.length || 0;
 
   if (loading) {
@@ -126,11 +147,22 @@ export default function PlaylistPage() {
           DAA Playlist <span className={styles.titleBadge}>{videoCount} videos</span>
         </h2>
         {videos?.length ? (
-          videos.some((v) => !v.processed) ? (
-            <button className={styles.primaryBtn} type="button" onClick={onIngest} disabled={ingesting}>
-              {ingesting ? "Processing..." : "Load / Retry"}
+          <div className={styles.headerActions}>
+            {videos.some((v) => !v.processed) ? (
+              <button className={styles.primaryBtn} type="button" onClick={onIngest} disabled={ingesting}>
+                {ingesting ? "Processing..." : "Load / Retry"}
+              </button>
+            ) : null}
+            <button
+              className={styles.secondaryBtn}
+              type="button"
+              onClick={onRegenerateQuizzes}
+              disabled={ingesting}
+              title="Use after updating quiz generation — rebuilds questions from transcripts for every video"
+            >
+              {ingesting ? "…" : "Regenerate quizzes"}
             </button>
-          ) : null
+          </div>
         ) : null}
       </div>
 

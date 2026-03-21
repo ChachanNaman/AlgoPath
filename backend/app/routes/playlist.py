@@ -21,6 +21,8 @@ DEFAULT_PLAYLIST_ID = "PLDN4rrl48XKpZkf03iYFl-O29szjTrs_O"
 def ingest_playlist():
     payload = request.get_json(silent=True) or {}
     playlist_id = payload.get("playlist_id") or DEFAULT_PLAYLIST_ID
+    # Re-queue Celery for every playlist video (regenerates questions from latest pipeline).
+    reprocess_all = bool(payload.get("reprocess_all") or payload.get("force_reprocess"))
 
     try:
         videos = fetch_playlist_videos(playlist_id)
@@ -30,16 +32,25 @@ def ingest_playlist():
     videos_collection = current_app.config["MONGO_DB"]["videos"]
 
     inserted = 0
+    requeued = 0
     for v in videos:
         existing = videos_collection.find_one({"video_id": v["video_id"]})
         if existing:
-            # Retry processing for videos that are not processed yet.
-            if not existing.get("processed", False):
+            should_run = (not existing.get("processed", False)) or reprocess_all
+            if should_run:
                 videos_collection.update_one(
                     {"video_id": v["video_id"]},
-                    {"$set": {"processing_error": None}},
+                    {
+                        "$set": {
+                            "title": v.get("title", "") or "",
+                            "thumbnail_url": v.get("thumbnail_url", "") or "",
+                            "processing_error": None,
+                            "processed": False,
+                        }
+                    },
                 )
                 process_video_task.delay(v["video_id"])
+                requeued += 1
             continue
         videos_collection.insert_one(
             {
@@ -64,7 +75,9 @@ def ingest_playlist():
             {
                 "status": "processing",
                 "video_count": inserted,
-                "message": "Playlist ingest started. Video processing happens asynchronously.",
+                "requeued": requeued,
+                "message": "Playlist ingest started. Video processing happens asynchronously."
+                + (" All videos re-queued for processing." if reprocess_all else ""),
             }
         ),
         202,

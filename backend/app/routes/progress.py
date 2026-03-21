@@ -5,8 +5,22 @@ from datetime import date, datetime, timedelta
 from flask import Blueprint, current_app, jsonify
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
+from app.services.transcript_service import infer_topic_tag
+
 
 progress_bp = Blueprint("progress_bp", __name__)
+
+
+def _effective_topic_for_attempt(attempt: dict, videos_by_id: dict) -> str:
+    t = (attempt.get("topic_tag") or "Unknown").strip() or "Unknown"
+    if t not in ("General", "Unknown", ""):
+        return t
+    vid = attempt.get("video_id") or ""
+    title = (videos_by_id.get(vid) or {}).get("title", "") or ""
+    inferred = infer_topic_tag(title)
+    if inferred and inferred not in ("General",):
+        return inferred
+    return t
 
 
 def _to_date(value) -> date | None:
@@ -32,6 +46,7 @@ def get_progress(user_id: str):
     db = current_app.config["MONGO_DB"]
     users = db["users"]
     quiz_attempts = db["quiz_attempts"]
+    videos = db["videos"]
 
     user_doc = users.find_one({"email": user_id}) or {}
     streak_days = int(user_doc.get("streak_days", 0) or 0)
@@ -60,14 +75,18 @@ def get_progress(user_id: str):
             200,
         )
 
-    # Overall + topic aggregates
+    vids = list({a.get("video_id") for a in attempts if a.get("video_id")})
+    vdocs = list(videos.find({"video_id": {"$in": vids}})) if vids else []
+    videos_by_id = {v["video_id"]: v for v in vdocs}
+
+    # Overall + topic aggregates (re-label General using video title for radar / analytics)
     topic_sum: dict[str, float] = {}
     topic_count: dict[str, int] = {}
     total_sum = 0.0
     for a in attempts:
         final = float(a.get("final_score", 0) or 0)
         total_sum += final
-        t = a.get("topic_tag") or "Unknown"
+        t = _effective_topic_for_attempt(a, videos_by_id)
         topic_sum[t] = topic_sum.get(t, 0.0) + final
         topic_count[t] = topic_count.get(t, 0) + 1
 

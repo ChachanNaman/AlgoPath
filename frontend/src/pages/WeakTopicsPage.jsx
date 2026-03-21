@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState } from "react";
+import React, { useCallback, useContext, useEffect, useState } from "react";
 import api from "../services/api.js";
 import { AuthContext } from "../context/AuthContext.jsx";
 import styles from "./WeakTopicsPage.module.css";
@@ -23,31 +23,37 @@ export default function WeakTopicsPage() {
   const [recs, setRecs] = useState([]);
   const [progress, setProgress] = useState(null);
 
-  useEffect(() => {
-    let mounted = true;
-    async function load() {
+  const load = useCallback(async ({ silent = false } = {}) => {
+    if (!userId) return;
+    if (!silent) {
       setLoading(true);
       setError("");
-      try {
-        const [recRes, progRes] = await Promise.all([
-          api.get(`/api/recommendations/${encodeURIComponent(userId)}`),
-          api.get(`/api/progress/${encodeURIComponent(userId)}`),
-        ]);
-        if (!mounted) return;
-        setRecs(recRes.data || []);
-        setProgress(progRes.data || null);
-      } catch (e) {
-        if (!mounted) return;
-        setError(e?.response?.data?.message || "Failed to load weak topics.");
-      } finally {
-        if (mounted) setLoading(false);
-      }
     }
-    if (userId) load();
-    return () => {
-      mounted = false;
-    };
+    try {
+      const [recRes, progRes] = await Promise.all([
+        api.get(`/api/recommendations/${encodeURIComponent(userId)}`),
+        api.get(`/api/progress/${encodeURIComponent(userId)}`),
+      ]);
+      setRecs(recRes.data || []);
+      setProgress(progRes.data || null);
+    } catch (e) {
+      if (!silent) setError(e?.response?.data?.message || "Failed to load weak topics.");
+    } finally {
+      if (!silent) setLoading(false);
+    }
   }, [userId]);
+
+  useEffect(() => {
+    load({ silent: false });
+  }, [load]);
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible" && userId) load({ silent: true });
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [userId, load]);
 
   const empty = !loading && !error && (!recs || recs.length === 0);
 

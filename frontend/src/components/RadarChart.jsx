@@ -21,6 +21,7 @@ const axisLabels = [
   "Trees",
   "Hashing",
   "Backtracking",
+  "Asymptotic Analysis",
 ];
 
 export default function RadarChart({ scores = {} }) {
@@ -50,7 +51,7 @@ export default function RadarChart({ scores = {} }) {
         ticks: { color: "#8A8FA8", stepSize: 2 },
         grid: { color: "rgba(255,255,255,0.08)" },
         angleLines: { color: "rgba(255,255,255,0.08)" },
-        pointLabels: { color: "#8A8FA8", font: { size: 11 } },
+        pointLabels: { color: "#8A8FA8", font: { size: 10 } },
       },
     },
   };

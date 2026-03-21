@@ -1,6 +1,198 @@
+import re
+
+
+def _extract_video_title(chunk_text: str) -> str:
+    """Pull title from Celery fallback chunk or use first line of real transcript."""
+    text = (chunk_text or "").strip()
+    m = re.search(r"Video title:\s*(.+?)(?:\n|$)", text, flags=re.IGNORECASE)
+    if m:
+        return m.group(1).strip()[:200]
+    line = text.split("\n")[0].strip()
+    return line[:200] if line else ""
+
+
+def _transcript_snippet(chunk_text: str, max_len: int = 220) -> str:
+    """Strip boilerplate; keep a short excerpt for grounded questions."""
+    text = (chunk_text or "").strip()
+    text = re.sub(r"^Lecture excerpt about[^.]*\.\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"Video title:.*", "", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:max_len]
+
+
+def _combined_context(chunk_text: str, topic_tag: str) -> str:
+    return f"{topic_tag or ''} {chunk_text or ''}".lower()
+
+
+def _title_grounded_pack(title: str, topic_tag: str, timestamp_start: float):
+    """
+    When we don't have a specialized template, still tie every question to this video's title/snippet
+    so quizzes are not identical across lectures.
+    """
+    label = (title or topic_tag or "this lecture").strip() or "this lecture"
+    return [
+        {
+            "question": f'For the lecture titled “{label}”, what problem, definition, or structure is the instructor introducing first?',
+            "correct_answer": f"The opening of “{label}” states the main definition or setup (what objects you measure and what you compare).",
+            "explanation": "Restate the definition using the same terms the instructor uses in the first few minutes.",
+            "difficulty": "easy",
+            "topic_tag": topic_tag or "General",
+            "timestamp_start": timestamp_start,
+        },
+        {
+            "question": f'In “{label}”, what is the main algorithm or method taught, and what is one key step or rule it relies on?',
+            "correct_answer": f"Name the technique from “{label}” and one concrete step the instructor demonstrates (e.g., a formula, case split, or update rule).",
+            "explanation": "Your answer should match the method in this video, not a different algorithm with a similar name.",
+            "difficulty": "medium",
+            "topic_tag": topic_tag or "General",
+            "timestamp_start": timestamp_start,
+        },
+        {
+            "question": f'Why does the approach in “{label}” work or save effort compared to brute force—what argument (correctness, pruning, recurrence, or invariant) does the instructor use?',
+            "correct_answer": f"Give the core justification from “{label}” (e.g., a bound, induction/invariant, or why a recurrence models the running time).",
+            "explanation": "Connect the proof sketch or intuition the lecture gives to the problem being solved.",
+            "difficulty": "hard",
+            "topic_tag": topic_tag or "General",
+            "timestamp_start": timestamp_start,
+        },
+    ]
+
+
+def _snippet_aware_questions(title: str, snippet: str, topic_tag: str, timestamp_start: float):
+    """If we have real transcript text, quote it so the quiz is clearly lecture-specific."""
+    label = (title or topic_tag or "this lecture").strip() or "this lecture"
+    sn = (snippet or "").strip()
+    if len(sn) < 40:
+        return _title_grounded_pack(title, topic_tag, timestamp_start)
+    quote = sn if len(sn) <= 160 else sn[:157] + "…"
+    return [
+        {
+            "question": f'The lecture “{label}” includes this line: “{quote}”. In your own words, what idea is being explained?',
+            "correct_answer": "A concise paraphrase that reuses the key technical terms from the quote and ties them to the lecture title.",
+            "explanation": "Answers should reflect the quoted transcript, not unrelated algorithms.",
+            "difficulty": "easy",
+            "topic_tag": topic_tag or "General",
+            "timestamp_start": timestamp_start,
+        },
+        {
+            "question": f'Using the same context (“{quote}”), what would change in the algorithm or analysis if an assumption from the lecture were violated?',
+            "correct_answer": "Name one concrete change (e.g., worse complexity, incorrect output, or need for a different data structure) when the assumption breaks.",
+            "explanation": "Shows you understand what the assumption is buying in the analysis.",
+            "difficulty": "medium",
+            "topic_tag": topic_tag or "General",
+            "timestamp_start": timestamp_start,
+        },
+        {
+            "question": f'How does the segment containing “{quote}” relate to the overall solution strategy in “{label}”?',
+            "correct_answer": "It is a local step that supports the global strategy (e.g., setup, recurrence, pruning, or combining partial results) for this lecture.",
+            "explanation": "Connect local detail to the global algorithmic story in the video.",
+            "difficulty": "hard",
+            "topic_tag": topic_tag or "General",
+            "timestamp_start": timestamp_start,
+        },
+    ]
+
+
 def generate_questions_for_chunk(chunk_text, topic_tag, timestamp_start):
     # Topic-aware mock questions so the UI + tutor don't look identical.
     t = (topic_tag or "DAA").strip().lower()
+    ctx = _combined_context(chunk_text, topic_tag)
+    title = _extract_video_title(chunk_text)
+    snippet = _transcript_snippet(chunk_text)
+
+    # Lecture-specific combos (check before broad "graph" templates).
+    if "branch" in ctx and "bound" in ctx:
+        lab = title or "Branch and Bound"
+        return [
+            {
+                "question": f'In “{lab}”, what is a live node vs a dead node in the state-space tree?',
+                "correct_answer": "A live node can still expand into feasible children; a dead node cannot lead to a better complete solution (pruned or infeasible).",
+                "explanation": "Branch-and-bound explores only promising branches using bounds.",
+                "difficulty": "easy",
+                "topic_tag": topic_tag or "Backtracking",
+                "timestamp_start": timestamp_start,
+            },
+            {
+                "question": f'How does branch-and-bound reduce search compared to brute force in “{lab}”?',
+                "correct_answer": "It uses a lower/upper bound to prune subtrees that cannot beat the best complete solution found so far.",
+                "explanation": "Pruning eliminates parts of the state space without enumerating all completions.",
+                "difficulty": "medium",
+                "topic_tag": topic_tag or "Backtracking",
+                "timestamp_start": timestamp_start,
+            },
+            {
+                "question": f'For TSP-style problems in “{lab}”, what does a typical cost bound at a partial tour represent?',
+                "correct_answer": "A lower bound on the cheapest way to complete the partial tour into a full Hamiltonian cycle (often via reduced matrix / minimum outgoing edges).",
+                "explanation": "Bounding estimates remaining cost to finish the tour.",
+                "difficulty": "hard",
+                "topic_tag": topic_tag or "Backtracking",
+                "timestamp_start": timestamp_start,
+            },
+        ]
+
+    if "traveling" in ctx or "travelling" in ctx or re.search(r"\btsp\b", ctx):
+        lab = title or "Traveling Salesman Problem"
+        return [
+            {
+                "question": f'In “{lab}”, what exactly are we minimizing, and over what set of solutions?',
+                "correct_answer": "Minimize total tour cost over all Hamiltonian cycles that visit each city exactly once and return to the start.",
+                "explanation": "TSP is an optimization over permutations/cycles, not arbitrary paths.",
+                "difficulty": "easy",
+                "topic_tag": topic_tag or "Graphs",
+                "timestamp_start": timestamp_start,
+            },
+            {
+                "question": f'Why is exhaustive enumeration expensive for TSP as n grows, in “{lab}”?',
+                "correct_answer": "There are (n-1)!/2 distinct tours under common symmetry assumptions, which grows super-exponentially.",
+                "explanation": "Search space size motivates branch-and-bound or heuristics.",
+                "difficulty": "medium",
+                "topic_tag": topic_tag or "Graphs",
+                "timestamp_start": timestamp_start,
+            },
+            {
+                "question": f'In “{lab}”, how does reduced-cost matrix reasoning support branching decisions?',
+                "correct_answer": "Row/column reduction yields a lower bound; choosing an edge to branch on splits into include/exclude cases while updating the matrix.",
+                "explanation": "This matches Abdul Bari–style TSP B&B on cost matrices.",
+                "difficulty": "hard",
+                "topic_tag": topic_tag or "Graphs",
+                "timestamp_start": timestamp_start,
+            },
+        ]
+
+    if (
+        "asymptotic" in ctx
+        or "big o" in ctx
+        or "big-o" in ctx
+        or "rate of growth" in ctx
+        or ("notation" in ctx and ("property" in ctx or "theta" in ctx or "omega" in ctx))
+    ):
+        lab = title or "Asymptotic notations"
+        return [
+            {
+                "question": f'In “{lab}”, what does f(n)=O(g(n)) mean in terms of constants c and n₀?',
+                "correct_answer": "There exist positive constants c and n₀ such that 0 ≤ f(n) ≤ c·g(n) for all n ≥ n₀.",
+                "explanation": "Big-O is an upper bound up to constant factors beyond some threshold.",
+                "difficulty": "easy",
+                "topic_tag": topic_tag or "Asymptotic Analysis",
+                "timestamp_start": timestamp_start,
+            },
+            {
+                "question": f'How does Θ notation differ from O notation in “{lab}”?',
+                "correct_answer": "Θ gives a tight bound (both upper and lower within constant factors); O only guarantees an upper bound.",
+                "explanation": "Θ(f) means f grows at the same rate as the bound; O(f) allows growing strictly slower too.",
+                "difficulty": "medium",
+                "topic_tag": topic_tag or "Asymptotic Analysis",
+                "timestamp_start": timestamp_start,
+            },
+            {
+                "question": f'State one standard property of asymptotic notation (transitivity, reflexivity, or symmetry rules) explained in “{lab}”.',
+                "correct_answer": "Example: if f=O(g) and g=O(h) then f=O(h) (transitivity); or f=Θ(f) (reflexivity for Θ).",
+                "explanation": "These properties let you combine and compare growth classes algebraically.",
+                "difficulty": "hard",
+                "topic_tag": topic_tag or "Asymptotic Analysis",
+                "timestamp_start": timestamp_start,
+            },
+        ]
 
     if "sorting" in t or "merge" in t or "quick" in t:
         return [
@@ -142,33 +334,10 @@ def generate_questions_for_chunk(chunk_text, topic_tag, timestamp_start):
             },
         ]
 
-    # Generic fallback
-    return [
-        {
-            "question": "Explain the main algorithm idea for this topic.",
-            "correct_answer": "Use the defining recurrence/invariant and reason about correctness + complexity.",
-            "explanation": "Correct reasoning depends on the topic's standard structure (recurrence or invariant).",
-            "difficulty": "easy",
-            "topic_tag": topic_tag,
-            "timestamp_start": timestamp_start,
-        },
-        {
-            "question": "What usually drives the time complexity here?",
-            "correct_answer": "The number of subproblems and the work done per recursion/transition step.",
-            "explanation": "Complexity is determined by recursion depth and per-level cost.",
-            "difficulty": "medium",
-            "topic_tag": topic_tag,
-            "timestamp_start": timestamp_start,
-        },
-        {
-            "question": "Why does the approach produce correct results?",
-            "correct_answer": "It preserves the necessary invariant/optimal substructure during decomposition.",
-            "explanation": "Correctness follows from decomposition and how subresults combine.",
-            "difficulty": "hard",
-            "topic_tag": topic_tag,
-            "timestamp_start": timestamp_start,
-        },
-    ]
+    # Never return the old identical "General" trio — ground in this video's title + transcript.
+    if len(snippet) >= 40:
+        return _snippet_aware_questions(title, snippet, topic_tag, timestamp_start)
+    return _title_grounded_pack(title, topic_tag, timestamp_start)
 
 
 def evaluate_student_answer(question, correct_answer, student_answer, topic_tag, language="en"):
@@ -182,7 +351,34 @@ def evaluate_student_answer(question, correct_answer, student_answer, topic_tag,
 
 
 def translate_content(text, target_language):
-    return {"translated": f"[{target_language} translation of: {text[:50]}...]"}
+    base = (text or "").strip()
+    if not base:
+        return {"translated": ""}
+
+    # Lightweight deterministic fallback translations for demo mode.
+    # This avoids fake placeholder strings in the quiz UI when USE_MOCK_LLM=True.
+    phrase_map = {
+        "hi": {
+            "Explain the main algorithm idea for this topic.": "Is topic ke liye main algorithm ka core idea samjhaiye.",
+            "What usually drives the time complexity here?": "Yahan time complexity ko aam taur par kaun si cheezein drive karti hain?",
+            "Why does the approach produce correct results?": "Yeh approach sahi result kyon deta hai?",
+        },
+        "ta": {
+            "Explain the main algorithm idea for this topic.": "Indha thalaippukku mukkiyamaana algorithm karuthai vilakkavum.",
+            "What usually drives the time complexity here?": "Inge time complexity-ai saadharanamaaga enna thaane nirnayam seigiradhu?",
+            "Why does the approach produce correct results?": "Indha murai sariyana mudivai eppadi tharugiradhu?",
+        },
+        "te": {
+            "Explain the main algorithm idea for this topic.": "Ee topic kosam main algorithm idea ni vivarinchandi.",
+            "What usually drives the time complexity here?": "Ikkada time complexity ni saadharananga emi prabhavitham chestundi?",
+            "Why does the approach produce correct results?": "Ee paddhati enduku sariyana phalitalu istundi?",
+        },
+    }
+    lang_map = phrase_map.get((target_language or "").lower(), {})
+    translated = lang_map.get(base)
+    if translated:
+        return {"translated": translated}
+    return {"translated": base}
 
 
 def ai_tutor_respond(user_message, conversation_history, context_chunks):
