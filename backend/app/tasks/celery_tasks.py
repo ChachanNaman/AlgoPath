@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import traceback
 from datetime import datetime
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from celery import Celery
 from pymongo import MongoClient
+import certifi
 
 from app.config import Config
 from app.services.embedding_service import get_embedding
@@ -23,6 +25,57 @@ def _parse_db_name(mongo_uri: str) -> str:
         return name or "algopath"
     except Exception:
         return "algopath"
+
+
+def _append_mongo_query_param(uri: str, key: str, value: str) -> str:
+    if not uri:
+        return uri
+    parsed = urlparse(uri)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    if key not in query:
+        query[key] = value
+    return urlunparse(parsed._replace(query=urlencode(query)))
+
+
+def _connect_mongo_db(uri: str):
+    is_srv = uri.startswith("mongodb+srv://")
+    kwargs = {
+        "serverSelectionTimeoutMS": 10000,
+        "connectTimeoutMS": 10000,
+        "socketTimeoutMS": 20000,
+    }
+    if is_srv:
+        kwargs["tlsCAFile"] = certifi.where()
+    client = MongoClient(uri, **kwargs)
+    db = client[_parse_db_name(uri)]
+    db.command("ping")
+    return db
+
+
+def _get_worker_db():
+    """
+    Keep Celery DB behavior aligned with Flask app:
+    1) configured MONGO_URI
+    2) local mongodb://localhost:27017/algopath
+    3) optional mongomock when USE_MOCK_DB=True
+    """
+    mongo_uri = Config.MONGO_URI
+    if not mongo_uri or "your_" in mongo_uri:
+        mongo_uri = "mongodb://localhost:27017/algopath"
+    if Config.MONGO_TLS_ALLOW_INVALID:
+        mongo_uri = _append_mongo_query_param(mongo_uri, "tlsAllowInvalidCertificates", "true")
+
+    try:
+        return _connect_mongo_db(mongo_uri)
+    except Exception:
+        try:
+            return _connect_mongo_db("mongodb://localhost:27017/algopath")
+        except Exception:
+            if not Config.USE_MOCK_DB:
+                raise
+            import mongomock
+
+            return mongomock.MongoClient()["algopath"]
 
 
 celery_app = Celery(
@@ -48,18 +101,13 @@ def process_video_task(video_id: str) -> None:
     - persist transcripts + questions
     - update video processed/topics
     """
-    # Build a Mongo client inside the worker.
-    mongo_uri = Config.MONGO_URI
-    if not mongo_uri or "your_" in mongo_uri:
-        mongo_uri = "mongodb://localhost:27017/algopath"
-    db_name = _parse_db_name(mongo_uri)
-    db = MongoClient(mongo_uri)[db_name]
-
-    videos = db["videos"]
-    transcripts = db["transcripts"]
-    questions = db["questions"]
-
+    videos = None
     try:
+        db = _get_worker_db()
+        videos = db["videos"]
+        transcripts = db["transcripts"]
+        questions = db["questions"]
+
         # Mark in-progress state (optional; helpful for UI).
         videos.update_one({"video_id": video_id}, {"$set": {"processing_error": None}}, upsert=False)
 
@@ -164,6 +212,12 @@ def process_video_task(video_id: str) -> None:
 
     except Exception:
         err = traceback.format_exc()
+        if videos is None:
+            try:
+                db = _get_worker_db()
+                videos = db["videos"]
+            except Exception:
+                return
         videos.update_one(
             {"video_id": video_id},
             {
@@ -178,11 +232,7 @@ def process_video_task(video_id: str) -> None:
 
 @celery_app.task(name="update_recommendations_task")
 def update_recommendations_task(user_id: str) -> None:
-    mongo_uri = Config.MONGO_URI
-    if not mongo_uri or "your_" in mongo_uri:
-        mongo_uri = "mongodb://localhost:27017/algopath"
-    db_name = _parse_db_name(mongo_uri)
-    db = MongoClient(mongo_uri)[db_name]
+    db = _get_worker_db()
     compute_recommendations(user_id, db)
 
 

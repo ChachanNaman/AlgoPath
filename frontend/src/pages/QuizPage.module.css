@@ -75,6 +75,11 @@
   font-size: 12px;
 }
 
+.langBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .langActive {
   background: rgba(108, 99, 255, 0.2);
   color: var(--accent-primary);
@@ -84,6 +89,18 @@
   font-family: var(--font-heading);
   font-size: 1.3rem;
   margin-bottom: 12px;
+}
+
+.translateHint {
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.translateError {
+  margin-bottom: 10px;
+  color: #ffb5b5;
+  font-size: 13px;
 }
 
 .originalToggle {

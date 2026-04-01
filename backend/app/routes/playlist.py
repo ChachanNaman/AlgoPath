@@ -33,6 +33,7 @@ def ingest_playlist():
 
     inserted = 0
     requeued = 0
+    queue_errors = 0
     for v in videos:
         existing = videos_collection.find_one({"video_id": v["video_id"]})
         if existing:
@@ -49,8 +50,15 @@ def ingest_playlist():
                         }
                     },
                 )
-                process_video_task.delay(v["video_id"])
-                requeued += 1
+                try:
+                    process_video_task.delay(v["video_id"])
+                    requeued += 1
+                except Exception:
+                    queue_errors += 1
+                    videos_collection.update_one(
+                        {"video_id": v["video_id"]},
+                        {"$set": {"processing_error": "Queue unavailable (Celery/Redis). Retry after worker starts."}},
+                    )
             continue
         videos_collection.insert_one(
             {
@@ -68,7 +76,14 @@ def ingest_playlist():
         inserted += 1
 
         # Enqueue processing in background.
-        process_video_task.delay(v["video_id"])
+        try:
+            process_video_task.delay(v["video_id"])
+        except Exception:
+            queue_errors += 1
+            videos_collection.update_one(
+                {"video_id": v["video_id"]},
+                {"$set": {"processing_error": "Queue unavailable (Celery/Redis). Retry after worker starts."}},
+            )
 
     return (
         jsonify(
@@ -76,6 +91,7 @@ def ingest_playlist():
                 "status": "processing",
                 "video_count": inserted,
                 "requeued": requeued,
+                "queue_errors": queue_errors,
                 "message": "Playlist ingest started. Video processing happens asynchronously."
                 + (" All videos re-queued for processing." if reprocess_all else ""),
             }

@@ -6,6 +6,7 @@ from datetime import datetime
 import bcrypt
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
+from pymongo.errors import PyMongoError
 
 
 auth_bp = Blueprint("auth_bp", __name__)
@@ -40,7 +41,10 @@ def register():
         return jsonify({"message": "password must be at least 6 characters"}), 400
 
     users = current_app.config["MONGO_DB"]["users"]
-    existing = users.find_one({"email": email})
+    try:
+        existing = users.find_one({"email": email})
+    except PyMongoError:
+        return jsonify({"message": "database unavailable; check MongoDB Atlas network/TLS settings"}), 503
     if existing:
         return jsonify({"message": "email already exists"}), 409
 
@@ -48,19 +52,22 @@ def register():
     password_hash = bcrypt.hashpw(password.encode("utf-8"), salt)
 
     now = datetime.utcnow()
-    users.insert_one(
-        {
-            "name": name,
-            "email": email,
-            "password_hash": password_hash,
-            "created_at": now,
-            "language_pref": "en",
-            "streak_days": 0,
-            # MongoDB/BSON cannot encode Python `datetime.date` objects reliably.
-            # Store as a proper UTC datetime instead.
-            "last_active": now,
-        }
-    )
+    try:
+        users.insert_one(
+            {
+                "name": name,
+                "email": email,
+                "password_hash": password_hash,
+                "created_at": now,
+                "language_pref": "en",
+                "streak_days": 0,
+                # MongoDB/BSON cannot encode Python `datetime.date` objects reliably.
+                # Store as a proper UTC datetime instead.
+                "last_active": now,
+            }
+        )
+    except PyMongoError:
+        return jsonify({"message": "database unavailable; check MongoDB Atlas network/TLS settings"}), 503
 
     # Return token immediately after register
     token = create_access_token(identity=email)
@@ -78,7 +85,10 @@ def login():
         return jsonify({"message": "email and password are required"}), 400
 
     users = current_app.config["MONGO_DB"]["users"]
-    user_doc = users.find_one({"email": email})
+    try:
+        user_doc = users.find_one({"email": email})
+    except PyMongoError:
+        return jsonify({"message": "database unavailable; check MongoDB Atlas network/TLS settings"}), 503
     if not user_doc:
         return jsonify({"message": "invalid credentials"}), 401
 
@@ -86,7 +96,10 @@ def login():
     if not stored_hash or not bcrypt.checkpw(password.encode("utf-8"), stored_hash):
         return jsonify({"message": "invalid credentials"}), 401
 
-    users.update_one({"_id": user_doc["_id"]}, {"$set": {"last_active": datetime.utcnow()}})
+    try:
+        users.update_one({"_id": user_doc["_id"]}, {"$set": {"last_active": datetime.utcnow()}})
+    except PyMongoError:
+        return jsonify({"message": "database unavailable; check MongoDB Atlas network/TLS settings"}), 503
 
     token = create_access_token(identity=email)
     user_doc = users.find_one({"email": email})

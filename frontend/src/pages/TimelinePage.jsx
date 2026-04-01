@@ -15,7 +15,10 @@ export default function TimelinePage() {
   const [videos, setVideos] = useState([]);
 
   const load = useCallback(async ({ silent = false } = {}) => {
-    if (!userId) return;
+    if (!userId) {
+      if (!silent) setLoading(false);
+      return;
+    }
     if (!silent) {
       setLoading(true);
       setError("");
@@ -64,7 +67,7 @@ export default function TimelinePage() {
         <div className={styles.sub}>Exact lecture moments to revisit based on your quiz performance.</div>
         <div className={styles.errorCard}>
           <div className={styles.errorMsg}>{error}</div>
-          <button className={styles.retryBtn} type="button" onClick={() => window.location.reload()}>
+          <button className={styles.retryBtn} type="button" onClick={() => load({ silent: false })}>
             Try Again
           </button>
         </div>

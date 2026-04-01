@@ -1,4 +1,5 @@
 import React, { useCallback, useContext, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "../services/api.js";
 import { AuthContext } from "../context/AuthContext.jsx";
 import styles from "./WeakTopicsPage.module.css";
@@ -16,6 +17,7 @@ function scoreVariant(score) {
 
 export default function WeakTopicsPage() {
   const { user } = useContext(AuthContext);
+  const navigate = useNavigate();
   const userId = user?.email;
 
   const [loading, setLoading] = useState(true);
@@ -24,7 +26,10 @@ export default function WeakTopicsPage() {
   const [progress, setProgress] = useState(null);
 
   const load = useCallback(async ({ silent = false } = {}) => {
-    if (!userId) return;
+    if (!userId) {
+      if (!silent) setLoading(false);
+      return;
+    }
     if (!silent) {
       setLoading(true);
       setError("");
@@ -75,7 +80,7 @@ export default function WeakTopicsPage() {
         <h2 className={styles.title}>Weak Topics</h2>
         <div className={styles.errorCard}>
           <div className={styles.errorMsg}>{error}</div>
-          <button className={styles.retryBtn} type="button" onClick={() => window.location.reload()}>
+          <button className={styles.retryBtn} type="button" onClick={() => load({ silent: false })}>
             Try Again
           </button>
         </div>
@@ -92,7 +97,7 @@ export default function WeakTopicsPage() {
             <path d="M22 12h20l10 20-10 20H22L12 32z" fill="rgba(108,99,255,0.15)" stroke="rgba(108,99,255,0.7)" strokeWidth="2" />
           </svg>
           <div className={styles.emptyText}>Take a quiz to unlock your weak-topic recommendations.</div>
-          <button className={styles.primaryBtn} type="button" onClick={() => (window.location.href = "/dashboard/playlist")}>
+          <button className={styles.primaryBtn} type="button" onClick={() => navigate("/dashboard/playlist")}>
             Start your first quiz →
           </button>
         </div>

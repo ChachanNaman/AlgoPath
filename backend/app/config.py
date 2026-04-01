@@ -14,6 +14,11 @@ class Config:
     # Development toggle: use mock LLM during early phases to avoid hitting Groq.
     # Set to False in Phase 7 when you are ready for real Groq calls.
     USE_MOCK_LLM = os.getenv("USE_MOCK_LLM", "True").lower() == "true"
+    # Emergency toggle for restrictive networks / TLS interception.
+    # Keep False normally. Set True only for local demo troubleshooting.
+    MONGO_TLS_ALLOW_INVALID = os.getenv("MONGO_TLS_ALLOW_INVALID", "False").lower() == "true"
+    # If Atlas/local Mongo are unavailable, allow in-memory Mongo fallback for demos.
+    USE_MOCK_DB = os.getenv("USE_MOCK_DB", "True").lower() == "true"
 
 
 def _sanitize_redis_url_for_celery(url: str) -> str:

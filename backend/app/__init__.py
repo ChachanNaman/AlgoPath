@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import timedelta
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from flask import Flask
 from flask_cors import CORS
@@ -10,6 +10,7 @@ from flask_jwt_extended import JWTManager
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from pymongo import MongoClient
+import certifi
 import redis
 
 from .config import Config
@@ -58,6 +59,46 @@ def _parse_db_name(mongo_uri: str) -> str:
         return "algopath"
 
 
+def _append_mongo_query_param(uri: str, key: str, value: str) -> str:
+    """Add query param to Mongo URI if missing."""
+    if not uri:
+        return uri
+    parsed = urlparse(uri)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    if key not in query:
+        query[key] = value
+    return urlunparse(parsed._replace(query=urlencode(query)))
+
+
+def _connect_mongo_database(mongo_uri: str, allow_invalid_tls: bool):
+    """
+    Connect to Mongo with resilient fallbacks:
+    1) provided URI (Atlas/local)
+    2) local mongodb://localhost:27017/algopath
+    3) mongomock (in-memory) when enabled
+    """
+    primary_uri = mongo_uri
+    if allow_invalid_tls:
+        primary_uri = _append_mongo_query_param(primary_uri, "tlsAllowInvalidCertificates", "true")
+
+    is_srv = primary_uri.startswith("mongodb+srv://")
+    kwargs = {
+        "serverSelectionTimeoutMS": 10000,
+        "connectTimeoutMS": 10000,
+        "socketTimeoutMS": 20000,
+    }
+    if is_srv:
+        # Force CA bundle; helps on some macOS/network environments.
+        kwargs["tlsCAFile"] = certifi.where()
+
+    # Try primary URI first.
+    client = MongoClient(primary_uri, **kwargs)
+    db_name = _parse_db_name(primary_uri)
+    db = client[db_name]
+    db.command("ping")
+    return db, "atlas-or-configured", primary_uri
+
+
 def create_app() -> Flask:
     app = Flask(__name__)
 
@@ -79,10 +120,34 @@ def create_app() -> Flask:
     if not mongo_uri or "your_" in mongo_uri:
         mongo_uri = "mongodb://localhost:27017/algopath"
 
-    mongo_client = MongoClient(mongo_uri)
-    db_name = _parse_db_name(mongo_uri)
-    mongo_db = mongo_client[db_name]
+    mongo_db = None
+    db_mode = "unknown"
+    final_uri = mongo_uri
+    try:
+        mongo_db, db_mode, final_uri = _connect_mongo_database(
+            mongo_uri, allow_invalid_tls=Config.MONGO_TLS_ALLOW_INVALID
+        )
+    except Exception:
+        # Fallback to local MongoDB.
+        try:
+            local_uri = "mongodb://localhost:27017/algopath"
+            mongo_db, db_mode, final_uri = _connect_mongo_database(local_uri, allow_invalid_tls=False)
+            app.logger.warning("Primary MongoDB unavailable; falling back to local MongoDB.")
+        except Exception:
+            if not Config.USE_MOCK_DB:
+                raise
+            # Final fallback for demo reliability.
+            import mongomock
+
+            mock_client = mongomock.MongoClient()
+            mongo_db = mock_client["algopath"]
+            db_mode = "mongomock"
+            final_uri = "mongomock://algopath"
+            app.logger.warning("MongoDB unavailable; using in-memory mongomock fallback.")
+
     app.config["MONGO_DB"] = mongo_db
+    app.config["DB_MODE"] = db_mode
+    app.config["MONGO_EFFECTIVE_URI"] = final_uri
 
     limiter.init_app(app)
 

@@ -44,6 +44,8 @@ export default function QuizPage() {
 
   const [language, setLanguage] = useState("en");
   const [translated, setTranslated] = useState(null);
+  const [translationLoading, setTranslationLoading] = useState(false);
+  const [translationError, setTranslationError] = useState("");
   const [showOriginal, setShowOriginal] = useState(false);
 
   const [results, setResults] = useState([]); // per-question result list
@@ -79,10 +81,13 @@ export default function QuizPage() {
     let mounted = true;
     async function loadTranslation() {
       setTranslated(null);
+      setTranslationError("");
+      setTranslationLoading(false);
       setShowOriginal(false);
       if (!current) return;
       if (language === "en") return;
       try {
+        setTranslationLoading(true);
         const res = await api.post("/api/quiz/translate", {
           question_id: current.question_id,
           target_language: language,
@@ -93,6 +98,9 @@ export default function QuizPage() {
         if (!mounted) return;
         // Keep original if translation fails.
         setTranslated(null);
+        setTranslationError("Translation unavailable right now. Showing original question.");
+      } finally {
+        if (mounted) setTranslationLoading(false);
       }
     }
     loadTranslation();
@@ -184,7 +192,7 @@ export default function QuizPage() {
       <div className={styles.wrap}>
         <div className={styles.errorCard}>
           <div className={styles.errorMsg}>{error}</div>
-          <button className={styles.retryBtn} type="button" onClick={() => window.location.reload()}>
+          <button className={styles.retryBtn} type="button" onClick={() => navigate("/dashboard/playlist")}>
             Try Again
           </button>
         </div>
@@ -257,6 +265,7 @@ export default function QuizPage() {
                 type="button"
                 className={[styles.langBtn, language === l.code ? styles.langActive : ""].filter(Boolean).join(" ")}
                 onClick={() => setLanguage(l.code)}
+                disabled={translationLoading}
               >
                 {l.label}
               </button>
@@ -265,6 +274,8 @@ export default function QuizPage() {
         </div>
 
         <div className={styles.questionText}>{current ? questionTextToRender : "All loaded questions are completed."}</div>
+        {translationLoading ? <div className={styles.translateHint}>Translating question...</div> : null}
+        {translationError ? <div className={styles.translateError}>{translationError}</div> : null}
 
         {language !== "en" && translated?.translated_question ? (
           <div className={styles.originalToggle}>
