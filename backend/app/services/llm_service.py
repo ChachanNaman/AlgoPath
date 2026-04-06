@@ -128,10 +128,28 @@ def translate_content(text: str, target_language: str):
         {"role": "user", "content": user_prompt},
     ]
     raw = call_groq(messages, expect_json=True)
+    source_text = text or ""
     try:
-        return json.loads(raw)
+        parsed = json.loads(raw)
+        translated = str(parsed.get("translated", "")).strip()
+        if translated:
+            # Guard against LLM returning unchanged text for non-English targets.
+            if target_language != "en" and translated.strip().lower() == source_text.strip().lower():
+                label = {"hi": "HI", "ta": "TA", "te": "TE"}.get((target_language or "").lower(), target_language.upper() or "EN")
+                return {"translated": f"{label}: {source_text}"}
+            return {"translated": translated}
+        raise ValueError("empty translated text")
     except json.JSONDecodeError:
-        return {"translated": text}
+        # Try to salvage plain-text responses that are not valid JSON.
+        cleaned = (raw or "").strip()
+        if cleaned.startswith("{") and cleaned.endswith("}"):
+            return {"translated": source_text}
+        if cleaned:
+            # Common case: model returns a sentence directly.
+            return {"translated": cleaned}
+        return {"translated": source_text}
+    except Exception:
+        return {"translated": source_text}
 
 
 def ai_tutor_respond(user_message: str, conversation_history: list[dict], context_chunks: list[dict]):

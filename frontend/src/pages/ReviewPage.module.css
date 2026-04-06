@@ -1,0 +1,126 @@
+.wrap {
+  padding: 10px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.title {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 1.6rem;
+  margin-bottom: 4px;
+}
+
+.sub {
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.banner {
+  background: linear-gradient(135deg, rgba(108, 99, 255, 0.2), rgba(0, 217, 181, 0.2));
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-md);
+  padding: 18px 18px;
+  box-shadow: var(--shadow-card);
+}
+
+.bannerTitle {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.bannerSub {
+  color: var(--text-secondary);
+}
+
+.panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 18px;
+  box-shadow: var(--shadow-card);
+}
+
+.metaRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.question {
+  font-family: var(--font-heading);
+  font-size: 1.25rem;
+  margin-bottom: 12px;
+}
+
+.textarea {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-family: var(--font-body);
+  font-size: 15px;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.primaryBtn {
+  background: var(--accent-primary);
+  color: #fff;
+  padding: 12px 22px;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font-heading);
+  font-weight: 500;
+}
+
+.secondaryBtn {
+  background: transparent;
+  border: 1px solid var(--border-accent);
+  color: var(--accent-primary);
+  padding: 12px 18px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font-heading);
+  font-weight: 600;
+}
+
+.resultCard {
+  margin-top: 14px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 14px;
+  color: var(--text-secondary);
+}
+
+.resultTitle {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.done {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 18px;
+  box-shadow: var(--shadow-card);
+  max-width: 680px;
+}
+

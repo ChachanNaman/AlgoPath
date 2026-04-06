@@ -9,6 +9,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from app import limiter
 from app.services.embedding_service import find_top_chunks, get_embedding
 from app.services.llm_provider import ai_tutor_respond, translate_content
+from app.config import Config
 
 
 ai_tutor_bp = Blueprint("ai_tutor_bp", __name__)
@@ -87,6 +88,51 @@ def chat():
     ]
 
     return jsonify({"response": response_text, "context_chunks": context_payload}), 200
+
+
+@ai_tutor_bp.post("/explain")
+@jwt_required()
+@limiter.limit("30/minute", key_func=lambda: get_jwt_identity() or request.remote_addr)
+def explain_concept():
+    payload = request.get_json(silent=True) or {}
+    question = _sanitize(payload.get("question", ""), 2000)
+    correct_answer = _sanitize(payload.get("correct_answer", ""), 2000)
+    topic = _sanitize(payload.get("topic", ""), 200)
+
+    # In real mode use Groq via llm_service; in mock mode provide a stable fallback.
+    if Config.USE_MOCK_LLM or not (Config.GROQ_API_KEY or "").strip():
+        explanation = (
+            f"Think of `{topic or 'this concept'}` like a real-life checklist: you follow a simple rule each step to avoid mistakes. "
+            "The key is to focus on the one condition that must always stay true.\n\n"
+            f"Key takeaway: {correct_answer[:140]}"
+        )
+        return jsonify({"explanation": explanation}), 200
+
+    from app.services.llm_service import call_groq
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a patient DAA tutor who explains hard concepts using simple everyday analogies. "
+                "Be concise — max 4 sentences. Always end with one key takeaway."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "A student got this wrong:\n"
+                f"Question: {question}\n"
+                f"Correct answer: {correct_answer}\n"
+                f"Topic: {topic}\n\n"
+                "Explain this concept simply using an analogy a beginner would understand. "
+                "Then give the key formula or rule to remember."
+            ),
+        },
+    ]
+
+    explanation = call_groq(messages, expect_json=False)
+    return jsonify({"explanation": explanation}), 200
 
 
 # Test:

@@ -378,7 +378,11 @@ def translate_content(text, target_language):
     translated = lang_map.get(base)
     if translated:
         return {"translated": translated}
-    return {"translated": base}
+    # Fallback: ensure language toggle visibly changes output in mock mode.
+    # (In real mode, Groq translation will be used and this fallback is not relied upon.)
+    lang = (target_language or "en").strip().lower()
+    label = {"hi": "HI", "ta": "TA", "te": "TE"}.get(lang, lang.upper() or "EN")
+    return {"translated": f"{label}: {base}"}
 
 
 def ai_tutor_respond(user_message, conversation_history, context_chunks):

@@ -22,6 +22,7 @@ export default function DashboardHome() {
   const [progress, setProgress] = useState(null);
   const [recommendations, setRecommendations] = useState(null);
   const [videos, setVideos] = useState(null);
+  const [due, setDue] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -39,15 +40,17 @@ export default function DashboardHome() {
       setLoading(true);
       setError("");
       try {
-        const [progRes, recRes, vidsRes] = await Promise.all([
+        const [progRes, recRes, vidsRes, dueRes] = await Promise.all([
           api.get(`/api/progress/${encodeURIComponent(userId)}`),
           api.get(`/api/recommendations/${encodeURIComponent(userId)}`),
           api.get(`/api/playlist/videos`),
+          api.get(`/api/quiz/due-reviews/${encodeURIComponent(userId)}`),
         ]);
         if (!mounted) return;
         setProgress(progRes.data);
         setRecommendations(recRes.data || []);
         setVideos(vidsRes.data || []);
+        setDue(dueRes.data || null);
       } catch (e) {
         if (!mounted) return;
         setError(e?.response?.data?.message || "Failed to load dashboard data.");
@@ -97,6 +100,8 @@ export default function DashboardHome() {
 
   const processedVideos = (videos || []).filter((v) => v.processed).slice(0, 3);
   const revisitList = (recommendations || []).slice(0, 3);
+  const dueCount = Number(due?.due_count || 0);
+  const badges = progress?.badges || [];
 
   return (
     <div className={styles.wrap}>
@@ -126,6 +131,37 @@ export default function DashboardHome() {
           <div className={styles.statSub}>Needs more practice</div>
         </div>
       </div>
+
+      {badges?.length ? (
+        <section className={styles.badgesSection}>
+          <h3 className={styles.badgesTitle}>Your Achievements</h3>
+          <div className={styles.badgesRow}>
+            {badges.map((b) => (
+              <div key={b.id} className={styles.badgeCard} title={b.desc}>
+                <span className={styles.badgeIcon}>{b.icon}</span>
+                <span className={styles.badgeLabel}>{b.label}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {dueCount > 0 ? (
+        <section className={styles.dueSection}>
+          <div className={styles.dueBanner}>
+            <div>
+              <div className={styles.dueTitle}>📅 Due for Review</div>
+              <div className={styles.dueBig}>You have {dueCount} questions due for review</div>
+              <div className={styles.dueSub}>
+                These are topics where your memory is fading — review now to lock them in.
+              </div>
+            </div>
+            <button className={styles.dueBtn} type="button" onClick={() => navigate("/dashboard/quiz/review")}>
+              Start Review Session →
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       <div className={styles.splitGrid}>
         <div className={styles.panel}>

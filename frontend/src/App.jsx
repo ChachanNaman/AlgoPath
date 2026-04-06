@@ -5,15 +5,16 @@ import { AuthContext } from "./context/AuthContext.jsx";
 
 import LoginPage from "./pages/LoginPage.jsx";
 import RegisterPage from "./pages/RegisterPage.jsx";
-//dddddd
 import DashboardHome from "./pages/DashboardHome.jsx";
 import PlaylistPage from "./pages/PlaylistPage.jsx";
 import QuizPage from "./pages/QuizPage.jsx";
+import ReviewPage from "./pages/ReviewPage.jsx";
 import WeakTopicsPage from "./pages/WeakTopicsPage.jsx";
 import TimelinePage from "./pages/TimelinePage.jsx";
 import ProgressPage from "./pages/ProgressPage.jsx";
 import AITutorPage from "./pages/AITutorPage.jsx";
 import LeaderboardPage from "./pages/LeaderboardPage.jsx";
+import KnowledgeGraphPage from "./pages/KnowledgeGraphPage.jsx";
 
 function DashboardLayout({ children }) {
   return (
@@ -72,6 +73,26 @@ export default function App() {
           <Protected>
             <DashboardLayout>
               <QuizPage />
+            </DashboardLayout>
+          </Protected>
+        }
+      />
+      <Route
+        path="/dashboard/quiz/review"
+        element={
+          <Protected>
+            <DashboardLayout>
+              <ReviewPage />
+            </DashboardLayout>
+          </Protected>
+        }
+      />
+      <Route
+        path="/dashboard/knowledge-graph"
+        element={
+          <Protected>
+            <DashboardLayout>
+              <KnowledgeGraphPage />
             </DashboardLayout>
           </Protected>
         }

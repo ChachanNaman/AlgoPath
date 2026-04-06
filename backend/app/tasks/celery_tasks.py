@@ -127,16 +127,22 @@ def process_video_task(video_id: str) -> None:
             title = video_doc.get("title", "") or video_id
             topic_tag = infer_topic_tag(title)
             fallback_text = f"Lecture excerpt about {topic_tag}. Video title: {title}"
-            chunks = [
-                {
-                    "text": fallback_text,
-                    # Non-zero so timeline / “jump to concept” aren’t stuck at 0:00 when transcript is missing.
-                    "start_time": 45.0,
-                    "end_time": 135.0,
-                    "topic_tag": topic_tag,
-                    "chunk_index": 0,
-                }
-            ]
+            # Create multiple synthetic chunks so timestamps vary in Weak Topics/Timeline
+            # even when transcript providers fail.
+            # (These are rough guesses; when real transcripts work, they override this.)
+            chunk_starts = [45.0, 135.0, 225.0]
+            chunks = []
+            for i, st in enumerate(chunk_starts):
+                chunks.append(
+                    {
+                        "text": fallback_text,
+                        # Non-zero so timeline / “jump to concept” aren’t stuck at 0:00.
+                        "start_time": float(st),
+                        "end_time": float(st + 90.0),
+                        "topic_tag": topic_tag,
+                        "chunk_index": int(i),
+                    }
+                )
 
         all_transcript_chunks = []
         all_questions = []

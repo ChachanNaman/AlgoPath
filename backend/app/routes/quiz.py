@@ -207,6 +207,114 @@ def translate_question():
     return jsonify({"translated_question": translated_q.get("translated", translated_q), "translated_answer": translated_a.get("translated", translated_a)}), 200
 
 
+@quiz_bp.get("/due-reviews/<user_id>")
+@jwt_required()
+def get_due_reviews(user_id: str):
+    identity = get_jwt_identity()
+    if str(identity) != str(user_id):
+        return jsonify({"message": "forbidden"}), 403
+
+    from datetime import timedelta
+
+    now = datetime.utcnow()
+    db = current_app.config["MONGO_DB"]
+    quiz_attempts = db["quiz_attempts"]
+    questions = db["questions"]
+
+    attempts = list(
+        quiz_attempts.find({"user_id": user_id, "final_score": {"$lt": 7}}).sort("attempted_at", -1)
+    )
+
+    due = []
+    seen_questions = set()
+
+    for attempt in attempts:
+        qid = str(attempt.get("question_id", "") or "")
+        if not qid or qid in seen_questions:
+            continue
+        seen_questions.add(qid)
+
+        score = int(attempt.get("final_score", 0) or 0)
+        attempted_at = attempt.get("attempted_at") or now
+        if not isinstance(attempted_at, datetime):
+            attempted_at = now
+
+        # Interval based on score (lower score = sooner review)
+        if score <= 3:
+            interval_days = 1
+        elif score <= 5:
+            interval_days = 3
+        else:
+            interval_days = 7
+
+        due_date = attempted_at + timedelta(days=interval_days)
+        if due_date > now:
+            continue
+
+        try:
+            q_oid = ObjectId(qid)
+        except Exception:
+            continue
+
+        question = questions.find_one({"_id": q_oid})
+        if not question:
+            continue
+
+        due.append(
+            {
+                "_id": str(question.get("_id")),
+                "question_text": question.get("question_text", ""),
+                "topic_tag": question.get("topic_tag", ""),
+                "difficulty": question.get("difficulty", "easy"),
+                "previous_score": score,
+                "video_id": question.get("video_id", ""),
+                "timestamp_start": float(question.get("timestamp_start", 0.0) or 0.0),
+                "days_overdue": int((now - due_date).days),
+                "attempted_at": attempted_at.isoformat(),
+            }
+        )
+
+    due.sort(key=lambda x: x.get("days_overdue", 0), reverse=True)
+    return jsonify({"due_count": len(due), "questions": due[:10]}), 200
+
+
+@quiz_bp.get("/heatmap/<video_id>")
+@jwt_required()
+def get_video_heatmap(video_id: str):
+    db = current_app.config["MONGO_DB"]
+    questions = db["questions"]
+    quiz_attempts = db["quiz_attempts"]
+
+    q_docs = list(questions.find({"video_id": video_id}, {"timestamp_start": 1, "topic_tag": 1}))
+    q_map = {str(q.get("_id")): q for q in q_docs}
+
+    attempts = list(quiz_attempts.find({"video_id": video_id}))
+
+    buckets: dict[int, list[float]] = {}
+    for attempt in attempts:
+        qid = str(attempt.get("question_id", "") or "")
+        if qid not in q_map:
+            continue
+        ts = float((q_map[qid] or {}).get("timestamp_start", 0) or 0)
+        bucket = int(ts // 60) * 60
+        buckets.setdefault(bucket, []).append(float(attempt.get("final_score", 5) or 5))
+
+    heatmap = []
+    for bucket_ts, scores in buckets.items():
+        avg = sum(scores) / max(1, len(scores))
+        heatmap.append(
+            {
+                "timestamp": int(bucket_ts),
+                "avg_score": round(avg, 1),
+                "attempt_count": int(len(scores)),
+                "difficulty": "hard" if avg < 4 else "medium" if avg < 7 else "easy",
+            }
+        )
+
+    heatmap.sort(key=lambda x: x["timestamp"])
+    return jsonify({"heatmap": heatmap}), 200
+
+
 # Test:
 # 1) Get questions:
 # curl http://localhost:5000/api/quiz/questions/VIDEO_ID?count=5&difficulty=easy \

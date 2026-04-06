@@ -9,6 +9,8 @@
   width: 100%;
   display: flex;
   justify-content: center;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .playerOuter {
@@ -19,6 +21,167 @@
   border-radius: var(--radius-md);
   overflow: hidden;
   background: rgba(255, 255, 255, 0.02);
+}
+
+.heatmapWrap {
+  width: 100%;
+  max-width: 640px;
+}
+
+.heatmapLabel {
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.heatmapBar {
+  width: 100%;
+  height: 12px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  position: relative;
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+}
+
+.heatSeg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 4px;
+  opacity: 0.95;
+}
+
+.heatLegend {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.legItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.heatNote {
+  margin-left: auto;
+  opacity: 0.9;
+}
+
+.explainSection {
+  margin-top: 12px;
+}
+
+.explainBtn {
+  background: transparent;
+  border: 1px solid rgba(0, 217, 181, 0.4);
+  color: var(--accent-secondary);
+  padding: 10px 20px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font-body);
+  margin-top: 12px;
+  transition: var(--transition);
+}
+
+.explainBtn:hover {
+  background: rgba(0, 217, 181, 0.1);
+}
+
+.typingDots {
+  display: inline-flex;
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.typingDots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.55);
+  animation: dotPulse 1s infinite ease-in-out;
+}
+
+.typingDots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.typingDots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes dotPulse {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.5;
+  }
+  50% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+.simpleExplainCard {
+  background: linear-gradient(135deg, rgba(0, 217, 181, 0.08), rgba(108, 99, 255, 0.08));
+  border: 1px solid rgba(0, 217, 181, 0.3);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  margin-top: 16px;
+  animation: fadeInUp 400ms ease;
+}
+
+.simpleExplainHeader {
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 10px;
+}
+
+.simpleExplainBody {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.simpleExplainLink {
+  display: inline-block;
+  margin-top: 10px;
+  color: var(--accent-secondary);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.simpleExplainLink:hover {
+  text-decoration: underline;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .playerInner {

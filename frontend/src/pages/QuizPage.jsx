@@ -32,7 +32,7 @@ export default function QuizPage() {
   const { video_id } = useParams();
   const navigate = useNavigate();
 
-  const { seekTo, isReady } = useYouTubePlayer("yt-player", video_id);
+  const { playerRef, seekTo, isReady } = useYouTubePlayer("yt-player", video_id);
 
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -50,6 +50,11 @@ export default function QuizPage() {
 
   const [results, setResults] = useState([]); // per-question result list
   const [showPlayerFallback, setShowPlayerFallback] = useState(false);
+  const [heatmap, setHeatmap] = useState([]);
+  const [heatmapTotal, setHeatmapTotal] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
+  const [explainLoading, setExplainLoading] = useState(false);
+  const [simpleExplanation, setSimpleExplanation] = useState("");
 
   const current = questions[index] || null;
   const totalQuestions = Math.max(1, questions.length);
@@ -118,6 +123,39 @@ export default function QuizPage() {
     return () => window.clearTimeout(timer);
   }, [video_id, isReady]);
 
+  useEffect(() => {
+    let mounted = true;
+    async function loadHeatmap() {
+      try {
+        const res = await api.get(`/api/quiz/heatmap/${video_id}`);
+        if (!mounted) return;
+        setHeatmap(res.data?.heatmap || []);
+        const total = (res.data?.heatmap || []).reduce((a, b) => a + Number(b.attempt_count || 0), 0);
+        setHeatmapTotal(total);
+      } catch {
+        if (!mounted) return;
+        setHeatmap([]);
+        setHeatmapTotal(0);
+      }
+    }
+    if (video_id) loadHeatmap();
+    return () => {
+      mounted = false;
+    };
+  }, [video_id]);
+
+  useEffect(() => {
+    if (!isReady) return;
+    const p = playerRef?.current;
+    if (!p || typeof p.getDuration !== "function") return;
+    try {
+      const d = Number(p.getDuration() || 0);
+      if (d > 0) setVideoDuration(d);
+    } catch {
+      // ignore
+    }
+  }, [isReady, playerRef]);
+
   const questionTextToRender = useMemo(() => {
     if (!current) return "";
     if (language === "en" || !translated?.translated_question) return current.question_text;
@@ -174,6 +212,7 @@ export default function QuizPage() {
   }, [results]);
 
   const score = results[index]?.final_score ?? null;
+  const finalScore = score ?? 0;
 
   if (loading) {
     return (
@@ -245,6 +284,40 @@ export default function QuizPage() {
           ) : (
             <div id="yt-player" className={styles.playerInner} />
           )}
+        </div>
+        <div className={styles.heatmapWrap}>
+          <div className={styles.heatmapLabel}>Difficulty Map</div>
+          <div className={styles.heatmapBar}>
+            {heatmap.map((h) => {
+              const ts = Number(h.timestamp || 0);
+              const dur = videoDuration || Math.max(600, (heatmap.at(-1)?.timestamp || 0) + 60);
+              const left = Math.max(0, Math.min(100, (ts / dur) * 100));
+              const width = Math.max(2, (60 / dur) * 100);
+              const color =
+                h.difficulty === "hard" ? "#FF6B6B" : h.difficulty === "medium" ? "#F5A623" : "#4CAF82";
+              const title = `${Math.floor(ts / 60)}:${String(Math.floor(ts % 60)).padStart(2, "0")} • Avg: ${h.avg_score}/10 • ${h.attempt_count} attempts`;
+              return (
+                <div
+                  key={String(h.timestamp)}
+                  className={styles.heatSeg}
+                  style={{ left: `${left}%`, width: `${width}%`, background: color }}
+                  title={title}
+                />
+              );
+            })}
+          </div>
+          <div className={styles.heatLegend}>
+            <span className={styles.legItem}>
+              <span className={styles.legDot} style={{ background: "#4CAF82" }} /> Easy
+            </span>
+            <span className={styles.legItem}>
+              <span className={styles.legDot} style={{ background: "#F5A623" }} /> Medium
+            </span>
+            <span className={styles.legItem}>
+              <span className={styles.legDot} style={{ background: "#FF6B6B" }} /> Hard
+            </span>
+            <span className={styles.heatNote}>Based on {heatmapTotal} quiz attempts by all students.</span>
+          </div>
         </div>
       </div>
 
@@ -347,6 +420,52 @@ export default function QuizPage() {
                   Jump to concept in video
                 </button>
               </div>
+
+              {finalScore < 5 ? (
+                <div className={styles.explainSection}>
+                  {!simpleExplanation ? (
+                    <button
+                      className={styles.explainBtn}
+                      type="button"
+                      disabled={explainLoading}
+                      onClick={async () => {
+                        setExplainLoading(true);
+                        try {
+                          const res = await api.post("/api/ai_tutor/explain", {
+                            question: current?.question_text || "",
+                            correct_answer: results[index]?.correct_answer || "",
+                            topic: current?.topic_tag || "",
+                          });
+                          setSimpleExplanation(res.data?.explanation || "");
+                        } catch {
+                          setSimpleExplanation("Could not fetch explanation right now. Try again in a moment.");
+                        } finally {
+                          setExplainLoading(false);
+                        }
+                      }}
+                    >
+                      Explain this concept to me
+                    </button>
+                  ) : null}
+                  {explainLoading ? <div className={styles.typingDots}><span /><span /><span /></div> : null}
+                  {simpleExplanation ? (
+                    <div className={styles.simpleExplainCard}>
+                      <div className={styles.simpleExplainHeader}>Simple Explanation</div>
+                      <p className={styles.simpleExplainBody}>{simpleExplanation}</p>
+                      <a
+                        className={styles.simpleExplainLink}
+                        href={`https://www.youtube.com/watch?v=${video_id}&t=${Math.floor(
+                          Number(current?.timestamp_start || 0)
+                        )}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Watch this part of the lecture →
+                      </a>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </div>
         ) : null}

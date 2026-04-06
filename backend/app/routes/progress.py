@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timedelta
 
 from flask import Blueprint, current_app, jsonify
@@ -9,6 +10,79 @@ from app.services.transcript_service import infer_topic_tag
 
 
 progress_bp = Blueprint("progress_bp", __name__)
+
+
+@progress_bp.get("/knowledge-graph/<user_id>")
+@jwt_required()
+def get_knowledge_graph(user_id: str):
+    identity = get_jwt_identity()
+    if str(identity) != str(user_id):
+        return jsonify({"message": "forbidden"}), 403
+
+    db = current_app.config["MONGO_DB"]
+    quiz_attempts = db["quiz_attempts"]
+
+    # Hardcoded DAA topic graph (nodes + edges)
+    nodes = [
+        {"id": "arrays", "label": "Arrays & Basics", "level": 1},
+        {"id": "recursion", "label": "Recursion", "level": 1},
+        {"id": "sorting", "label": "Sorting", "level": 2},
+        {"id": "divide_conquer", "label": "Divide & Conquer", "level": 2},
+        {"id": "hashing", "label": "Hashing", "level": 2},
+        {"id": "trees", "label": "Trees", "level": 2},
+        {"id": "graphs", "label": "Graphs", "level": 3},
+        {"id": "dp", "label": "Dynamic Programming", "level": 3},
+        {"id": "greedy", "label": "Greedy", "level": 3},
+        {"id": "backtracking", "label": "Backtracking", "level": 3},
+        {"id": "np", "label": "NP Completeness", "level": 4},
+    ]
+    edges = [
+        {"from": "arrays", "to": "sorting"},
+        {"from": "arrays", "to": "hashing"},
+        {"from": "recursion", "to": "divide_conquer"},
+        {"from": "recursion", "to": "backtracking"},
+        {"from": "recursion", "to": "trees"},
+        {"from": "divide_conquer", "to": "sorting"},
+        {"from": "trees", "to": "graphs"},
+        {"from": "graphs", "to": "dp"},
+        {"from": "arrays", "to": "dp"},
+        {"from": "greedy", "to": "np"},
+        {"from": "dp", "to": "np"},
+        {"from": "backtracking", "to": "np"},
+    ]
+
+    # Get user's scores per topic
+    attempts = list(quiz_attempts.find({"user_id": user_id}))
+    topic_scores: dict[str, float] = {}
+    topic_counts: dict[str, int] = {}
+
+    def _norm_topic(t: str) -> str:
+        t = (t or "").lower().replace("&", "and")
+        t = re.sub(r"[^a-z0-9]+", "_", t)
+        t = re.sub(r"_+", "_", t).strip("_")
+        return t
+
+    for a in attempts:
+        raw = a.get("topic_tag", "") or ""
+        t = _norm_topic(raw)
+        # fuzzy match to node IDs
+        for node in nodes:
+            nid = node["id"]
+            if nid in t or t in nid:
+                topic_scores[nid] = topic_scores.get(nid, 0.0) + float(a.get("final_score", 0) or 0)
+                topic_counts[nid] = topic_counts.get(nid, 0) + 1
+
+    for node in nodes:
+        nid = node["id"]
+        if topic_counts.get(nid, 0) > 0:
+            avg = topic_scores[nid] / topic_counts[nid]
+            node["score"] = round(avg, 1)
+            node["status"] = "mastered" if avg >= 7 else "learning" if avg >= 4 else "weak"
+        else:
+            node["score"] = None
+            node["status"] = "untested"
+
+    return jsonify({"nodes": nodes, "edges": edges}), 200
 
 
 def _effective_topic_for_attempt(attempt: dict, videos_by_id: dict) -> str:
@@ -109,6 +183,27 @@ def get_progress(user_id: str):
         avg = sum(float(a.get("final_score", 0) or 0) for a in day_attempts) / len(day_attempts)
         daily_scores.append({"date": d.isoformat(), "avg_score": float(round(avg, 2))})
 
+    # Achievement badges
+    total_attempts = len(attempts)
+    badges = []
+    if total_attempts >= 1:
+        badges.append({"id": "first_quiz", "label": "First Step", "icon": "🎯", "desc": "Completed your first quiz"})
+    if total_attempts >= 10:
+        badges.append({"id": "ten_quizzes", "label": "Getting Serious", "icon": "📚", "desc": "Completed 10 quizzes"})
+    if overall_avg >= 7:
+        badges.append({"id": "high_scorer", "label": "High Achiever", "icon": "⭐", "desc": "Average score above 7"})
+    if streak_days >= 3:
+        badges.append({"id": "streak_3", "label": "On Fire", "icon": "🔥", "desc": "3-day study streak"})
+    if streak_days >= 7:
+        badges.append({"id": "streak_7", "label": "Unstoppable", "icon": "⚡", "desc": "7-day study streak"})
+    for topic, score in topic_scores.items():
+        try:
+            if float(score) >= 8:
+                badges.append({"id": f"master_{topic}", "label": f"{topic} Master", "icon": "🏆", "desc": f"Mastered {topic}"})
+                break
+        except Exception:
+            continue
+
     return (
         jsonify(
             {
@@ -119,6 +214,7 @@ def get_progress(user_id: str):
                 "strongest_topic": strongest_topic,
                 "weakest_topic": weakest_topic,
                 "daily_scores": daily_scores,
+                "badges": badges,
             }
         ),
         200,
